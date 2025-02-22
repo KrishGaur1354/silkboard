@@ -1,8 +1,52 @@
-# React + Vite
+# **Diagram Generator App**  
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This is a web-based application that's to create diagrams. It features a React frontend and an Express.js backend with Socket.io for real-time updates.  
 
-Currently, two official plugins are available:
+## **Features**  
+- Generate diagrams from text descriptions.  
+- Real-time updates using WebSockets.  
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## **Prerequisites**  
+- Node.js (v16+)  
+
+## **Installation & Setup**  
+
+### **1. Clone the Repository**  
+```sh
+git clone https://github.com/KrishGaur1354/silkboard.git 
+```
+
+### **2. Install Dependencies**  
+
+#### **Frontend**  
+```sh
+npm install
+```
+
+#### **Backend**  
+```sh
+cd backend
+npm install
+```
+
+
+### **4. Run the Application**  
+#### **Start the Backend**  
+#### **Start the Frontend**  
+```sh
+npm run dev
+```
+
+```sh
+cd backend
+node server.js
+```
+
+### **5. Access the App**  
+Open your browser and visit:  
+```
+http://localhost:5173
+```
+
+## **License**  
+The Unlicense
