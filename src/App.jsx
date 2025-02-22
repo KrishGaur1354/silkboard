@@ -710,23 +710,23 @@ const App = () => {
     <div className="relative group">
       <button 
         onClick={onClick}
-        className={`
-          p-2 rounded-lg transition-all duration-200
+        className={
+          `p-2 rounded-lg transition-all duration-200
           flex items-center justify-center
           w-10 h-10 
           ${active 
             ? 'bg-blue-500 text-white' 
-            : 'bg-white hover:bg-blue-100 text-gray-700 hover:text-blue-600'
+            : `bg-transparent ${darkMode ? 'text-white hover:bg-gray-700' : 'text-gray-700 hover:bg-blue-100'}`
           }
-          border border-gray-200 hover:border-blue-300
-          ${className}
-        `}
+          border ${darkMode ? 'border-gray-700 hover:border-gray-600' : 'border-gray-200 hover:border-blue-300'}
+          ${className}`
+        }
       >
         <Icon className="w-5 h-5" />
       </button>
-      <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 
+      <div className={`absolute -bottom-8 left-1/2 transform -translate-x-1/2 
                       opacity-0 group-hover:opacity-100 transition-opacity duration-200
-                      bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                      ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-800 text-white'} text-xs px-2 py-1 rounded whitespace-nowrap`}>
         {label}
       </div>
     </div>
@@ -754,7 +754,9 @@ const App = () => {
     onColorChange
   }) => {
     return (
-      <div className="flex items-center gap-4 p-3 bg-white border-b border-gray-200 shadow-sm">
+      <div className={`flex items-center gap-4 p-3 border-b shadow-sm ${
+        darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+      }`}>
         {/* Drawing Tools */}
         <ButtonGroup>
           <ToolButton
@@ -762,64 +764,74 @@ const App = () => {
             label="Select"
             onClick={() => setMode('select')}
             active={mode === 'select'}
+            darkMode={darkMode} // Pass darkMode prop
           />
           <ToolButton
             icon={Pencil}
             label="Pencil"
             onClick={() => setMode('pencil')}
             active={mode === 'pencil'}
+            darkMode={darkMode} // Pass darkMode prop
           />
         </ButtonGroup>
-
+  
         {/* Shapes */}
         <ButtonGroup>
           <ToolButton
             icon={Square}
             label="Rectangle"
             onClick={() => addShape('rectangle')}
+            darkMode={darkMode} // Pass darkMode prop
           />
           <ToolButton
             icon={CircleIcon}
             label="Circle"
             onClick={() => addShape('circle')}
+            darkMode={darkMode} // Pass darkMode prop
           />
           <ToolButton
             icon={Diamond}
             label="Diamond"
             onClick={addDiamond}
+            darkMode={darkMode} // Pass darkMode prop
           />
           <ToolButton
             icon={Type}
             label="Text"
             onClick={addText}
+            darkMode={darkMode} // Pass darkMode prop
           />
           <ToolButton
             icon={Link2}
             label="Connector"
             onClick={() => setMode('connector')}
             active={mode === 'connector'}
+            darkMode={darkMode} // Pass darkMode prop
           />
         </ButtonGroup>
-
+  
         {/* Actions */}
         <ButtonGroup>
           <ToolButton
             icon={Trash2}
             label="Delete"
             onClick={deleteSelected}
+            darkMode={darkMode} // Pass darkMode prop
           />
           <ToolButton
             icon={Palette}
             label="Update Color"
             onClick={updateSelectedColor}
+            darkMode={darkMode} // Pass darkMode prop
           />
           <ToolButton
             icon={Eraser}
             label="Clear Canvas"
             onClick={clearCanvas}
+            darkMode={darkMode} // Pass darkMode prop
           />
         </ButtonGroup>
-
+  
         {/* Color Picker */}
         <div className="relative group">
           <input
@@ -828,24 +840,26 @@ const App = () => {
             onChange={onColorChange}
             className="w-10 h-10 rounded cursor-pointer"
           />
-          <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 
-                        opacity-0 group-hover:opacity-100 transition-opacity duration-200
-                        bg-gray-800 text-white text-xs px-2 py-1 rounded">
+          <div className={`absolute -bottom-8 left-1/2 transform -translate-x-1/2 
+                          opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                          ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-800 text-white'} text-xs px-2 py-1 rounded`}>
             Pick Color
           </div>
         </div>
-
+  
         {/* Utilities */}
         <ButtonGroup>
           <ToolButton
             icon={Upload}
             label="Upload Image"
             onClick={onImageUpload}
+            darkMode={darkMode} // Pass darkMode prop
           />
           <ToolButton
             icon={darkMode ? Sun : Moon}
             label={darkMode ? "Light Mode" : "Dark Mode"}
             onClick={toggleDarkMode}
+            darkMode={darkMode} // Pass darkMode prop
           />
         </ButtonGroup>
       </div>
