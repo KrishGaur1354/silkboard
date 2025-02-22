@@ -857,22 +857,34 @@ const App = () => {
     <div className={`flex h-screen transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'}`}>
       {/* Left: Whiteboard Area */}
       <div className="flex-grow flex flex-col">
-        {/* Top Toolbar (Navbar remains unchanged) */}
-        <Toolbar
-          mode={mode}
-          setMode={setMode}
-          addShape={addShape}
-          addDiamond={addDiamond}
-          addText={addText}
-          deleteSelected={deleteSelected}
-          updateSelectedColor={updateSelectedColor}
-          clearCanvas={clearCanvas}
-          darkMode={darkMode}
-          toggleDarkMode={toggleDarkMode}
-          onImageUpload={() => fileInputRef.current.click()}
-          color={color}
-          onColorChange={handleColorChange}
-        />
+        {/* Top Toolbar (Navbar remains unchanged) */}       
+        <div className="hidden">
+  <input
+    type="file"
+    accept="image/*"
+    ref={fileInputRef}
+    onChange={handleImageUpload}
+  />
+</div>
+<Toolbar
+  mode={mode}
+  setMode={setMode}
+  addShape={addShape}
+  addDiamond={addDiamond}
+  addText={addText}
+  deleteSelected={deleteSelected}
+  updateSelectedColor={updateSelectedColor}
+  clearCanvas={clearCanvas}
+  darkMode={darkMode}
+  toggleDarkMode={toggleDarkMode}
+  onImageUpload={() => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  }}
+  color={color}
+  onColorChange={handleColorChange}
+/>
         {/* Canvas Area */}
         <div className="flex-grow flex items-center justify-center relative">
           <Stage
