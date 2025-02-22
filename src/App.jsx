@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Stage, Layer, Rect, Circle, Line, Text, Image, Group, Transformer } from 'react-konva';
+import { Stage, Layer, Rect, Circle, Line, Image, Group, Transformer } from 'react-konva';
 import useImage from 'use-image';
 import io from 'socket.io-client';
 import { Button } from './components/ui/button';
+import EditableText from './components/EditableText';
 
 import { 
   MousePointer2, 
@@ -42,7 +43,7 @@ const App = () => {
   const [passcode, setPasscode] = useState('');
   const [isCreatingSession, setIsCreatingSession] = useState(true);
 
-//state for undo/redo history
+  //state for undo/redo history
   const [history, setHistory] = useState([[]]);
   const [historyStep, setHistoryStep] = useState(0);
 
@@ -155,69 +156,68 @@ const App = () => {
     setChatInput('');
   };
 
- // undo/redo functions
-// Add these functions near your other action functions
-const undo = () => {
-  if (historyStep > 0) {
-    setHistoryStep(historyStep - 1);
-    setShapes(history[historyStep - 1]);
-    emitCanvasData(history[historyStep - 1]);
-  }
-};
+  // undo/redo functions
+  const undo = () => {
+    if (historyStep > 0) {
+      setHistoryStep(historyStep - 1);
+      setShapes(history[historyStep - 1]);
+      emitCanvasData(history[historyStep - 1]);
+    }
+  };
 
-const redo = () => {
-  if (historyStep < history.length - 1) {
-    setHistoryStep(historyStep + 1);
-    setShapes(history[historyStep + 1]);
-    emitCanvasData(history[historyStep + 1]);
-  }
-};
+  const redo = () => {
+    if (historyStep < history.length - 1) {
+      setHistoryStep(historyStep + 1);
+      setShapes(history[historyStep + 1]);
+      emitCanvasData(history[historyStep + 1]);
+    }
+  };
 
-// Add this helper function to manage history updates
-const addToHistory = (newShapes) => {
-  const newHistory = history.slice(0, historyStep + 1);
-  newHistory.push([...newShapes]);
-  setHistory(newHistory);
-  setHistoryStep(newHistory.length - 1);
-};
+  // Add this helper function to manage history updates
+  const addToHistory = (newShapes) => {
+    const newHistory = history.slice(0, historyStep + 1);
+    newHistory.push([...newShapes]);
+    setHistory(newHistory);
+    setHistoryStep(newHistory.length - 1);
+  };
 
   // State to track if middle mouse button is pressed
-const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
-const lastPointerPosition = useRef({ x: 0, y: 0 });
+  const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
+  const lastPointerPosition = useRef({ x: 0, y: 0 });
 
-// Handle middle mouse button down
-const handleMiddleMouseDown = (e) => {
-  if (e.evt.button === 1) { // Middle mouse button
-    setIsDraggingCanvas(true);
-    lastPointerPosition.current = {
-      x: e.evt.clientX,
-      y: e.evt.clientY,
-    };
-  }
-};
+  // Handle middle mouse button down
+  const handleMiddleMouseDown = (e) => {
+    if (e.evt.button === 1) { // Middle mouse button
+      setIsDraggingCanvas(true);
+      lastPointerPosition.current = {
+        x: e.evt.clientX,
+        y: e.evt.clientY,
+      };
+    }
+  };
 
-// Handle middle mouse button move
-const handleMiddleMouseMove = (e) => {
-  if (isDraggingCanvas) {
-    const dx = e.evt.clientX - lastPointerPosition.current.x;
-    const dy = e.evt.clientY - lastPointerPosition.current.y;
+  // Handle middle mouse button move
+  const handleMiddleMouseMove = (e) => {
+    if (isDraggingCanvas) {
+      const dx = e.evt.clientX - lastPointerPosition.current.x;
+      const dy = e.evt.clientY - lastPointerPosition.current.y;
 
-    setPosition((prev) => ({
-      x: prev.x + dx,
-      y: prev.y + dy,
-    }));
+      setPosition((prev) => ({
+        x: prev.x + dx,
+        y: prev.y + dy,
+      }));
 
-    lastPointerPosition.current = {
-      x: e.evt.clientX,
-      y: e.evt.clientY,
-    };
-  }
-};
+      lastPointerPosition.current = {
+        x: e.evt.clientX,
+        y: e.evt.clientY,
+      };
+    }
+  };
 
-// Handle middle mouse button up
-const handleMiddleMouseUp = () => {
-  setIsDraggingCanvas(false);
-};
+  // Handle middle mouse button up
+  const handleMiddleMouseUp = () => {
+    setIsDraggingCanvas(false);
+  };
 
   // ===== Pencil (free-drawing) handlers =====
   const handleMouseDown = (e) => {
@@ -424,20 +424,21 @@ const handleMiddleMouseUp = () => {
       type: 'text',
       x: 100,
       y: 100,
-      text: 'Type here',
+      text: 'Double click to edit',
       fontSize: 20,
       fontFamily: 'Arial',
       fill: color,
-      width: 100,
+      width: 200,
       height: 30,
       rotation: 0,
       scaleX: 1,
-      scaleY: 1,
+      scaleY: 1
     };
     const updated = [...shapes, newText];
     setShapes(updated);
     addToHistory(updated);
     emitCanvasData(updated);
+    setSelectedId(id);
   };
 
   // Image Upload
@@ -700,30 +701,20 @@ const handleMiddleMouseUp = () => {
         );
       case 'text':
         return (
-          <Text
+          <EditableText
             key={shape.id}
-            id={shape.id}
-            x={shape.x}
-            y={shape.y}
-            text={shape.text}
-            fontSize={shape.fontSize}
-            fontFamily={shape.fontFamily}
-            fill={shape.fill}
-            width={shape.width}
-            height={shape.height}
-            rotation={shape.rotation || 0}
-            draggable
-            onClick={() => setSelectedId(shape.id)}
-            onDragEnd={(e) => {
-              const pos = e.target.position();
+            shape={shape}
+            isSelected={selectedId === shape.id}
+            onSelect={setSelectedId}
+            onChange={(updatedShape) => {
               const updated = shapes.map((s) =>
-                s.id === shape.id ? { ...s, x: pos.x, y: pos.y } : s
+                s.id === shape.id ? updatedShape : s
               );
               setShapes(updated);
-              addToHistory(updated); // Add to history after drag
+              addToHistory(updated);
               emitCanvasData(updated);
             }}
-            onTransformEnd={(e) => onTransformEnd(e.target, shape)}
+            darkMode={darkMode}
           />
         );
         case 'line':
