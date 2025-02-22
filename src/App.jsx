@@ -1,24 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Stage, Layer, Rect, Circle, Line, Text, Image, Group } from 'react-konva';
+import { Stage, Layer, Rect, Circle, Line, Text, Image, Group, Transformer } from 'react-konva';
 import useImage from 'use-image';
 import io from 'socket.io-client';
 import { Button } from './components/ui/button';
-import { Select } from './components/ui/select';
 
 const socket = io('http://localhost:3001');
 
 // Helper function to generate a random passcode (6 alphanumeric characters)
-const generatePasscode = () => Math.random().toString(36).substring(2, 8).toUpperCase();
+const generatePasscode = () =>
+  Math.random().toString(36).substring(2, 8).toUpperCase();
 
 const App = () => {
   // ===== Authentication / Session state =====
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState('');
   const [passcode, setPasscode] = useState('');
-  const [isCreatingSession, setIsCreatingSession] = useState(true); // Toggle between creating or joining a session
+  const [isCreatingSession, setIsCreatingSession] = useState(true);
 
   // ===== Whiteboard state =====
-  const [mode, setMode] = useState('select'); // Modes: 'select', 'pencil', 'connector'
+  const [mode, setMode] = useState('select'); // 'select', 'pencil', 'connector'
   const [shapes, setShapes] = useState([]);
   const [color, setColor] = useState('#000000');
   const [selectedId, setSelectedId] = useState(null);
@@ -27,9 +27,19 @@ const App = () => {
   const stageRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // ===== Presence state =====
-  // userCursors will hold data for each connected user: { [userId]: { username, x, y, isDrawing } }
+  // ===== Presence state (cursor positions) =====
   const [userCursors, setUserCursors] = useState({});
+
+  // ===== Dark Mode =====
+  const [darkMode, setDarkMode] = useState(false);
+  const toggleDarkMode = () => setDarkMode((prev) => !prev);
+
+  // ===== Chat state =====
+  const [messages, setMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+
+  // ===== Konva Transformer reference =====
+  const transformerRef = useRef(null);
 
   // ===== Join session =====
   useEffect(() => {
@@ -39,24 +49,28 @@ const App = () => {
   }, [isLoggedIn, username, passcode]);
 
   // ===== Socket Listeners =====
-  // Canvas updates from other users.
   useEffect(() => {
+    // Receive shapes updates
     socket.on('canvas-data', (data) => {
       if (data.userId !== socket.id) {
         setShapes(data.shapes);
       }
     });
 
-    // Listen for user cursor updates.
+    // Receive presence (cursor) updates
     socket.on('user-update', (data) => {
-      // Update the userCursors state with the new data.
       setUserCursors((prev) => ({
         ...prev,
-        [data.userId]: { username: data.username, x: data.x, y: data.y, isDrawing: data.isDrawing }
+        [data.userId]: {
+          username: data.username,
+          x: data.x,
+          y: data.y,
+          isDrawing: data.isDrawing,
+        },
       }));
     });
 
-    // Remove disconnected users.
+    // Remove disconnected users
     socket.on('user-disconnect', (userId) => {
       setUserCursors((prev) => {
         const updated = { ...prev };
@@ -65,10 +79,16 @@ const App = () => {
       });
     });
 
+    // Receive chat messages
+    socket.on('chat-message', (msg) => {
+      setMessages((prev) => [...prev, msg]);
+    });
+
     return () => {
       socket.off('canvas-data');
       socket.off('user-update');
       socket.off('user-disconnect');
+      socket.off('chat-message');
     };
   }, []);
 
@@ -76,24 +96,45 @@ const App = () => {
     socket.emit('canvas-data', { userId: socket.id, shapes: newShapes });
   };
 
-  // Emit pointer updates on every mouse move.
+  // Emit pointer updates on every mouse move
   const emitCursorUpdate = (pos, drawing) => {
     socket.emit('cursor-update', {
       userId: socket.id,
       username,
       x: pos.x,
       y: pos.y,
-      isDrawing: drawing
+      isDrawing: drawing,
     });
   };
 
+  // Send a chat message
+  const sendChatMessage = () => {
+    if (!chatInput.trim()) return;
+    const msgData = {
+      userId: socket.id,
+      username,
+      text: chatInput.trim(),
+    };
+    // Send to server
+    socket.emit('chat-message', msgData);
+    // Also add it to our own local messages
+    setMessages((prev) => [...prev, msgData]);
+    setChatInput('');
+  };
+
   // ===== Pencil (free-drawing) handlers =====
-  const handleMouseDown = (e) => {
+  const handleMouseDown = () => {
     if (mode === 'pencil') {
       setIsDrawing(true);
       const pos = stageRef.current.getPointerPosition();
       const id = 'line-' + Date.now();
-      const newLine = { id, type: 'line', points: [pos.x, pos.y], stroke: color, strokeWidth: 2 };
+      const newLine = {
+        id,
+        type: 'line',
+        points: [pos.x, pos.y],
+        stroke: color,
+        strokeWidth: 2,
+      };
       const updated = [...shapes, newLine];
       setShapes(updated);
       emitCanvasData(updated);
@@ -101,17 +142,20 @@ const App = () => {
     }
   };
 
-  const handleMouseMove = (e) => {
+  const handleMouseMove = () => {
     if (!stageRef.current) return;
     const pos = stageRef.current.getPointerPosition();
-    // Always emit the current cursor position.
+    // Always emit the current cursor position
     emitCursorUpdate(pos, mode === 'pencil' && isDrawing);
 
     if (mode === 'pencil' && isDrawing && selectedId) {
       setShapes((prevShapes) =>
         prevShapes.map((shape) => {
           if (shape.id === selectedId && shape.type === 'line') {
-            return { ...shape, points: [...shape.points, pos.x, pos.y] };
+            return {
+              ...shape,
+              points: [...shape.points, pos.x, pos.y],
+            };
           }
           return shape;
         })
@@ -126,30 +170,17 @@ const App = () => {
     }
   };
 
-  // ===== Connector Mode Handler =====
-  const handleShapeClick = (e, shape) => {
+  // ===== Connector Mode =====
+  const handleShapeClick = (shape) => {
     if (mode === 'connector') {
       if (!connectorStartId) {
         setConnectorStartId(shape.id);
       } else if (connectorStartId !== shape.id) {
-        const getCenter = (s) => {
-          if (s.type === 'rect' || s.type === 'text') {
-            return { x: s.x + (s.width || 100) / 2, y: s.y + (s.height || 30) / 2 };
-          } else if (s.type === 'circle') {
-            return { x: s.x, y: s.y };
-          } else if (s.type === 'diamond') {
-            return { x: s.x + (s.width || 120) / 2, y: s.y + (s.height || 80) / 2 };
-          } else if (s.type === 'line') {
-            return { x: s.points[0], y: s.points[1] };
-          } else if (s.type === 'image') {
-            return { x: s.x, y: s.y };
-          }
-          return { x: s.x, y: s.y };
-        };
+        // Connect the two shapes by their center
         const startShape = shapes.find((s) => s.id === connectorStartId);
         if (startShape) {
-          const startCenter = getCenter(startShape);
-          const endCenter = getCenter(shape);
+          const startCenter = getCenterOfShape(startShape);
+          const endCenter = getCenterOfShape(shape);
           const id = 'line-' + Date.now();
           const connectorLine = {
             id,
@@ -170,14 +201,60 @@ const App = () => {
     }
   };
 
-  // ===== Adding Basic Shapes =====
+  // Calculate the center of a shape
+  const getCenterOfShape = (s) => {
+    // If the shape has a bounding box (rect, diamond, text, image)
+    // we can compute center as x + width/2, y + height/2
+    if (s.type === 'rect' || s.type === 'text' || s.type === 'image') {
+      return { x: s.x + (s.width || 100) / 2, y: s.y + (s.height || 30) / 2 };
+    }
+    // For circle
+    if (s.type === 'circle') {
+      return { x: s.x, y: s.y };
+    }
+    // For diamond
+    if (s.type === 'diamond') {
+      return {
+        x: s.x + (s.width || 120) / 2,
+        y: s.y + (s.height || 80) / 2,
+      };
+    }
+    // For line, just take the start point
+    if (s.type === 'line' && s.points.length >= 2) {
+      return { x: s.points[0], y: s.points[1] };
+    }
+    return { x: s.x, y: s.y };
+  };
+
+  // ===== Adding Shapes =====
   const addShape = (shapeType) => {
     const id = shapeType + '-' + Date.now();
     let newShape = null;
     if (shapeType === 'rectangle') {
-      newShape = { id, type: 'rect', x: 100, y: 100, width: 100, height: 100, fill: color };
+      newShape = {
+        id,
+        type: 'rect',
+        x: 100,
+        y: 100,
+        width: 100,
+        height: 80,
+        fill: color,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+      };
     } else if (shapeType === 'circle') {
-      newShape = { id, type: 'circle', x: 150, y: 150, radius: 50, fill: color };
+      newShape = {
+        id,
+        type: 'circle',
+        x: 150,
+        y: 150,
+        radius: 50,
+        fill: color,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+      };
     }
     if (newShape) {
       const updated = [...shapes, newShape];
@@ -186,16 +263,27 @@ const App = () => {
     }
   };
 
-  // ===== Add a Diamond shape =====
+  // Diamond shape
   const addDiamond = () => {
     const id = 'diamond-' + Date.now();
-    const newDiamond = { id, type: 'diamond', x: 100, y: 100, width: 120, height: 80, fill: color };
+    const newDiamond = {
+      id,
+      type: 'diamond',
+      x: 200,
+      y: 100,
+      width: 120,
+      height: 80,
+      fill: color,
+      rotation: 0,
+      scaleX: 1,
+      scaleY: 1,
+    };
     const updated = [...shapes, newDiamond];
     setShapes(updated);
     emitCanvasData(updated);
   };
 
-  // ===== Add a Text element =====
+  // Text element
   const addText = () => {
     const id = 'text-' + Date.now();
     const newText = {
@@ -209,13 +297,16 @@ const App = () => {
       fill: color,
       width: 100,
       height: 30,
+      rotation: 0,
+      scaleX: 1,
+      scaleY: 1,
     };
     const updated = [...shapes, newText];
     setShapes(updated);
     emitCanvasData(updated);
   };
 
-  // ===== Image Upload Handler =====
+  // Image Upload
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -223,7 +314,18 @@ const App = () => {
     reader.onload = () => {
       const dataUrl = reader.result;
       const id = 'image-' + Date.now();
-      const newImage = { id, type: 'image', x: 100, y: 100, src: dataUrl };
+      const newImage = {
+        id,
+        type: 'image',
+        x: 100,
+        y: 100,
+        width: 200, // default
+        height: 200, // default
+        src: dataUrl,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+      };
       const updated = [...shapes, newImage];
       setShapes(updated);
       emitCanvasData(updated);
@@ -231,7 +333,7 @@ const App = () => {
     reader.readAsDataURL(file);
   };
 
-  // ===== Delete Selected Shape =====
+  // Delete shape
   const deleteSelected = () => {
     if (selectedId) {
       const updated = shapes.filter((s) => s.id !== selectedId);
@@ -241,18 +343,20 @@ const App = () => {
     }
   };
 
-  // ===== Update Color of Selected Shape =====
+  // Update shape color
   const updateSelectedColor = () => {
     if (selectedId) {
       const updated = shapes.map((s) =>
-        s.id === selectedId ? { ...s, fill: color, stroke: color } : s
+        s.id === selectedId
+          ? { ...s, fill: color, stroke: color }
+          : s
       );
       setShapes(updated);
       emitCanvasData(updated);
     }
   };
 
-  // ===== Clear Entire Canvas =====
+  // Clear canvas
   const clearCanvas = () => {
     setShapes([]);
     setSelectedId(null);
@@ -264,37 +368,112 @@ const App = () => {
     setColor(e.target.value);
   };
 
-  // ===== Component for Rendering Uploaded Images =====
+  // ===== Render the shapes =====
+  // We also attach transform events to each shape for resizing/rotating
+  const onTransformEnd = (node, shape) => {
+    const scaleX = node.scaleX();
+    const scaleY = node.scaleY();
+    const rotation = node.rotation();
+
+    const updatedShapes = shapes.map((s) => {
+      if (s.id !== shape.id) return s;
+
+      if (s.type === 'rect' || s.type === 'text' || s.type === 'image') {
+        const newWidth = s.width * scaleX;
+        const newHeight = s.height * scaleY;
+        return {
+          ...s,
+          x: node.x(),
+          y: node.y(),
+          width: newWidth,
+          height: newHeight,
+          rotation,
+          scaleX: 1,
+          scaleY: 1,
+        };
+      }
+      if (s.type === 'circle') {
+        // For circle, let's approximate radius from scale
+        const newRadius = s.radius * (scaleX + scaleY) / 2;
+        return {
+          ...s,
+          x: node.x(),
+          y: node.y(),
+          radius: newRadius,
+          rotation,
+          scaleX: 1,
+          scaleY: 1,
+        };
+      }
+      if (s.type === 'diamond') {
+        const newWidth = s.width * scaleX;
+        const newHeight = s.height * scaleY;
+        return {
+          ...s,
+          x: node.x(),
+          y: node.y(),
+          width: newWidth,
+          height: newHeight,
+          rotation,
+          scaleX: 1,
+          scaleY: 1,
+        };
+      }
+      if (s.type === 'line') {
+        // We won't handle transform for free lines or connectors in this example
+        return s;
+      }
+      return s;
+    });
+
+    setShapes(updatedShapes);
+    emitCanvasData(updatedShapes);
+  };
+
   const URLImage = ({ shape }) => {
     const [img] = useImage(shape.src);
     return (
       <Image
+        id={shape.id}
         image={img}
-        {...shape}
+        x={shape.x}
+        y={shape.y}
+        width={shape.width}
+        height={shape.height}
+        rotation={shape.rotation}
         draggable
-        onClick={(e) => handleShapeClick(e, shape)}
+        onClick={() => setSelectedId(shape.id)}
         onDragEnd={(e) => {
           const pos = e.target.position();
           const updated = shapes.map((s) =>
-            s.id === shape.id ? { ...s, x: pos.x, y: pos.y } : s
+            s.id === shape.id
+              ? { ...s, x: pos.x, y: pos.y }
+              : s
           );
           setShapes(updated);
           emitCanvasData(updated);
         }}
+        onTransformEnd={(e) => onTransformEnd(e.target, shape)}
       />
     );
   };
 
-  // ===== Render shapes based on type =====
+  // Renders each shape with transform & drag events
   const renderShape = (shape) => {
     switch (shape.type) {
       case 'rect':
         return (
           <Rect
             key={shape.id}
-            {...shape}
+            id={shape.id}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            rotation={shape.rotation || 0}
             draggable
-            onClick={(e) => handleShapeClick(e, shape)}
+            onClick={() => setSelectedId(shape.id)}
             onDragEnd={(e) => {
               const pos = e.target.position();
               const updated = shapes.map((s) =>
@@ -303,15 +482,21 @@ const App = () => {
               setShapes(updated);
               emitCanvasData(updated);
             }}
+            onTransformEnd={(e) => onTransformEnd(e.target, shape)}
           />
         );
       case 'circle':
         return (
           <Circle
             key={shape.id}
-            {...shape}
+            id={shape.id}
+            x={shape.x}
+            y={shape.y}
+            radius={shape.radius}
+            fill={shape.fill}
+            rotation={shape.rotation || 0}
             draggable
-            onClick={(e) => handleShapeClick(e, shape)}
+            onClick={() => setSelectedId(shape.id)}
             onDragEnd={(e) => {
               const pos = e.target.position();
               const updated = shapes.map((s) =>
@@ -320,15 +505,55 @@ const App = () => {
               setShapes(updated);
               emitCanvasData(updated);
             }}
+            onTransformEnd={(e) => onTransformEnd(e.target, shape)}
+          />
+        );
+      case 'diamond':
+        // We'll treat diamond as a rotated square. We'll compute points from width/height
+        return (
+          <Line
+            key={shape.id}
+            id={shape.id}
+            x={shape.x}
+            y={shape.y}
+            points={[
+              shape.width / 2, 0,
+              shape.width, shape.height / 2,
+              shape.width / 2, shape.height,
+              0, shape.height / 2,
+            ]}
+            fill={shape.fill}
+            closed
+            rotation={shape.rotation || 0}
+            draggable
+            onClick={() => setSelectedId(shape.id)}
+            onDragEnd={(e) => {
+              const pos = e.target.position();
+              const updated = shapes.map((s) =>
+                s.id === shape.id ? { ...s, x: pos.x, y: pos.y } : s
+              );
+              setShapes(updated);
+              emitCanvasData(updated);
+            }}
+            onTransformEnd={(e) => onTransformEnd(e.target, shape)}
           />
         );
       case 'text':
         return (
           <Text
             key={shape.id}
-            {...shape}
+            id={shape.id}
+            x={shape.x}
+            y={shape.y}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            fontFamily={shape.fontFamily}
+            fill={shape.fill}
+            width={shape.width}
+            height={shape.height}
+            rotation={shape.rotation || 0}
             draggable
-            onClick={(e) => handleShapeClick(e, shape)}
+            onClick={() => setSelectedId(shape.id)}
             onDragEnd={(e) => {
               const pos = e.target.position();
               const updated = shapes.map((s) =>
@@ -337,32 +562,19 @@ const App = () => {
               setShapes(updated);
               emitCanvasData(updated);
             }}
+            onTransformEnd={(e) => onTransformEnd(e.target, shape)}
           />
         );
       case 'line':
-        return <Line key={shape.id} {...shape} />;
-      case 'diamond':
+        // Lines (free-drawn or connectors)
         return (
           <Line
             key={shape.id}
-            points={[
-              shape.x + shape.width / 2, shape.y,
-              shape.x + shape.width, shape.y + shape.height / 2,
-              shape.x + shape.width / 2, shape.y + shape.height,
-              shape.x, shape.y + shape.height / 2,
-            ]}
-            fill={shape.fill}
-            closed
-            draggable
-            onClick={(e) => handleShapeClick(e, shape)}
-            onDragEnd={(e) => {
-              const pos = e.target.position();
-              const updated = shapes.map((s) =>
-                s.id === shape.id ? { ...s, x: pos.x, y: pos.y } : s
-              );
-              setShapes(updated);
-              emitCanvasData(updated);
-            }}
+            id={shape.id}
+            points={shape.points}
+            stroke={shape.stroke || '#000'}
+            strokeWidth={shape.strokeWidth || 2}
+            dash={shape.dash || []}
           />
         );
       case 'image':
@@ -372,74 +584,110 @@ const App = () => {
     }
   };
 
+  // Attach or detach the Transformer based on selectedId
+  useEffect(() => {
+    const stage = stageRef.current?.getStage();
+    if (!stage) return;
+    const tr = transformerRef.current;
+    if (!tr) return;
+
+    if (selectedId) {
+      const selectedNode = stage.findOne(`#${selectedId}`);
+      if (selectedNode) {
+        tr.nodes([selectedNode]);
+      } else {
+        tr.nodes([]);
+      }
+    } else {
+      tr.nodes([]);
+    }
+    tr.getLayer()?.batchDraw();
+  }, [selectedId, shapes]);
+
   // ===== Login / Session screen =====
   if (!isLoggedIn) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-gray-50">
-        <h1 className="text-2xl font-bold mb-4">Join or Create a Session</h1>
-        <div className="mb-4">
-          <label className="block mb-1">Username:</label>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="border p-2 rounded"
-          />
+      <div
+        className={`min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 ${
+          darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'
+        }`}
+      >
+        <div className="absolute top-4 right-4">
+          <Button onClick={toggleDarkMode}>
+            {darkMode ? 'Light Mode' : 'Dark Mode'}
+          </Button>
         </div>
-        {isCreatingSession ? (
+        <div className="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-8 w-full max-w-md">
+          <h1 className="text-2xl font-bold mb-6 text-center">
+            Join or Create a Session
+          </h1>
           <div className="mb-4">
-            <label className="block mb-1">Passcode (auto-generated):</label>
-            <div className="flex items-center">
+            <label className="block mb-1">Username:</label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full border rounded p-2 bg-gray-50 dark:bg-gray-700"
+            />
+          </div>
+          {isCreatingSession ? (
+            <div className="mb-4">
+              <label className="block mb-1">Passcode (auto-generated):</label>
+              <div className="flex items-center">
+                <input
+                  type="text"
+                  value={passcode}
+                  readOnly
+                  className="w-full border rounded p-2 mr-2 bg-gray-50 dark:bg-gray-700"
+                  placeholder="Click Generate"
+                />
+                <Button onClick={() => setPasscode(generatePasscode())}>
+                  Generate
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="mb-4">
+              <label className="block mb-1">Enter Session Passcode:</label>
               <input
                 type="text"
                 value={passcode}
-                readOnly
-                className="border p-2 rounded mr-2"
-                placeholder="Click Generate"
+                onChange={(e) => setPasscode(e.target.value)}
+                className="w-full border rounded p-2 bg-gray-50 dark:bg-gray-700"
               />
-              <Button onClick={() => setPasscode(generatePasscode())}>
-                Generate
-              </Button>
             </div>
-          </div>
-        ) : (
+          )}
           <div className="mb-4">
-            <label className="block mb-1">Enter Session Passcode:</label>
-            <input
-              type="text"
-              value={passcode}
-              onChange={(e) => setPasscode(e.target.value)}
-              className="border p-2 rounded"
-            />
+            <Button
+              onClick={() => {
+                if (username && passcode) {
+                  setIsLoggedIn(true);
+                } else {
+                  alert('Please enter a username and passcode');
+                }
+              }}
+              className="w-full"
+            >
+              {isCreatingSession ? 'Create Session' : 'Join Session'}
+            </Button>
           </div>
-        )}
-        <div className="mb-4">
-          <Button
-            onClick={() => {
-              if (username && passcode) {
-                setIsLoggedIn(true);
-              } else {
-                alert('Please enter a username and passcode');
-              }
-            }}
-          >
-            {isCreatingSession ? 'Create Session' : 'Join Session'}
-          </Button>
-        </div>
-        <div>
-          <p className="mb-2">
-            {isCreatingSession
-              ? 'Want to join an existing session?'
-              : 'Want to create a new session?'}
-          </p>
-          <Button
-            onClick={() => {
-              setIsCreatingSession(!isCreatingSession);
-              setPasscode('');
-            }}
-          >
-            {isCreatingSession ? 'Switch to Join Session' : 'Switch to Create Session'}
-          </Button>
+          <div className="text-center">
+            <p className="mb-2">
+              {isCreatingSession
+                ? 'Want to join an existing session?'
+                : 'Want to create a new session?'}
+            </p>
+            <Button
+              onClick={() => {
+                setIsCreatingSession(!isCreatingSession);
+                setPasscode('');
+              }}
+            >
+              {isCreatingSession
+                ? 'Switch to Join Session'
+                : 'Switch to Create Session'}
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -447,44 +695,65 @@ const App = () => {
 
   // ===== Main whiteboard interface =====
   return (
-    <div className="flex h-screen">
+    <div
+      className={`flex h-screen transition-colors duration-300 ${
+        darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'
+      }`}
+    >
       {/* Left: Whiteboard Area */}
       <div className="flex-grow flex flex-col">
         {/* Top Toolbar */}
-        <div className="bg-gray-100 border-b border-gray-300 px-4 py-2 flex items-center gap-4">
-          <Button onClick={() => setMode('select')}>Select</Button>
-          <Button onClick={() => setMode('pencil')}>Pencil</Button>
-          <Button onClick={() => addShape('rectangle')}>Rectangle</Button>
-          <Button onClick={() => addShape('circle')}>Circle</Button>
-          <Button onClick={addDiamond}>Diamond</Button>
-          <Button onClick={addText}>Text</Button>
-          <Button onClick={() => setMode('connector')}>Connector</Button>
-          <Button onClick={deleteSelected}>Delete</Button>
-          <Button onClick={updateSelectedColor}>Update Color</Button>
-          <Button onClick={clearCanvas}>Clear</Button>
-          <div className="flex items-center gap-2">
-            <label htmlFor="colorPicker" className="font-medium">Color:</label>
+        <div
+          className={`flex items-center justify-between px-6 py-3 shadow-md ${
+            darkMode ? 'bg-gray-800' : 'bg-white'
+          }`}
+        >
+          <div className="flex items-center gap-4">
+            <Button onClick={() => setMode('select')}>Select</Button>
+            <Button onClick={() => setMode('pencil')}>Pencil</Button>
+            <Button onClick={() => addShape('rectangle')}>Rectangle</Button>
+            <Button onClick={() => addShape('circle')}>Circle</Button>
+            <Button onClick={addDiamond}>Diamond</Button>
+            <Button onClick={addText}>Text</Button>
+            <Button onClick={() => setMode('connector')}>Connector</Button>
+            <Button onClick={deleteSelected}>Delete</Button>
+            <Button onClick={updateSelectedColor}>Update Color</Button>
+            <Button onClick={clearCanvas}>Clear</Button>
+            <div className="flex items-center gap-2">
+              <label htmlFor="colorPicker" className="font-medium">
+                Color:
+              </label>
+              <input
+                id="colorPicker"
+                type="color"
+                value={color}
+                onChange={handleColorChange}
+                className="w-10 h-10 border rounded"
+              />
+            </div>
+            <Button
+              onClick={() =>
+                fileInputRef.current && fileInputRef.current.click()
+              }
+            >
+              Upload Image
+            </Button>
             <input
-              id="colorPicker"
-              type="color"
-              value={color}
-              onChange={handleColorChange}
-              className="w-10 h-10 border rounded"
+              type="file"
+              accept="image/*"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              onChange={handleImageUpload}
             />
           </div>
-          <Button onClick={() => fileInputRef.current && fileInputRef.current.click()}>
-            Upload Image
-          </Button>
-          <input
-            type="file"
-            accept="image/*"
-            ref={fileInputRef}
-            style={{ display: 'none' }}
-            onChange={handleImageUpload}
-          />
+          <div>
+            <Button onClick={toggleDarkMode}>
+              {darkMode ? 'Light Mode' : 'Dark Mode'}
+            </Button>
+          </div>
         </div>
         {/* Canvas Area */}
-        <div className="flex-grow flex items-center justify-center bg-white relative">
+        <div className="flex-grow flex items-center justify-center relative">
           <Stage
             width={window.innerWidth * 0.7}
             height={window.innerHeight * 0.9}
@@ -494,9 +763,15 @@ const App = () => {
             onMouseup={handleMouseUp}
           >
             <Layer>
-              {shapes.map(renderShape)}
+              {shapes.map((shape) => (
+                <React.Fragment key={shape.id}>
+                  {renderShape(shape)}
+                </React.Fragment>
+              ))}
+              {/* The Konva Transformer */}
+              <Transformer ref={transformerRef} />
             </Layer>
-            {/* Cursor Overlay Layer */}
+            {/* Cursor Overlay */}
             <Layer>
               {Object.entries(userCursors).map(([id, user]) => (
                 <Group key={id}>
@@ -509,7 +784,9 @@ const App = () => {
                   <Text
                     x={user.x + 8}
                     y={user.y - 5}
-                    text={id === socket.id ? user.username + " (You)" : user.username}
+                    text={
+                      id === socket.id ? user.username + ' (You)' : user.username
+                    }
                     fontSize={12}
                     fill="black"
                   />
@@ -519,22 +796,55 @@ const App = () => {
           </Stage>
         </div>
       </div>
-      {/* Right Sidebar: List of Active Users */}
-      <div className="w-60 border-l border-gray-300 p-4">
-        <h2 className="font-bold mb-2">Active Users</h2>
-        <ul>
+
+      {/* Right Sidebar */}
+      <div className="w-64 border-l p-4 overflow-y-auto shadow-inner flex flex-col">
+        {/* Active Users List */}
+        <h2 className="font-bold text-lg mb-2">Active Users</h2>
+        <ul className="mb-4">
           {Object.entries(userCursors).map(([id, user]) => (
-            <li key={id} className="mb-2">
+            <li
+              key={id}
+              className="mb-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            >
               <div className="flex flex-col">
-                <span className="font-medium">{id === socket.id ? user.username + " (You)" : user.username}</span>
+                <span className="font-medium">
+                  {id === socket.id ? user.username + ' (You)' : user.username}
+                </span>
                 <span className="text-xs">
                   {`x: ${Math.round(user.x)}, y: ${Math.round(user.y)}`}
                 </span>
-                {user.isDrawing && <span className="text-xs text-red-500">Drawing</span>}
+                {user.isDrawing && (
+                  <span className="text-xs text-red-500">Drawing</span>
+                )}
               </div>
             </li>
           ))}
         </ul>
+
+        {/* Chatbox */}
+        <h2 className="font-bold text-lg mb-2">Chat</h2>
+        <div className="flex-grow mb-2 overflow-auto border border-gray-300 dark:border-gray-600 rounded p-2">
+          {messages.map((msg, idx) => (
+            <div key={idx} className="mb-2">
+              <span className="font-semibold">{msg.username}: </span>
+              <span>{msg.text}</span>
+            </div>
+          ))}
+        </div>
+        <div className="flex">
+          <input
+            className="flex-grow border rounded p-2 mr-2 dark:bg-gray-700"
+            type="text"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            placeholder="Type a message..."
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') sendChatMessage();
+            }}
+          />
+          <Button onClick={sendChatMessage}>Send</Button>
+        </div>
       </div>
     </div>
   );
