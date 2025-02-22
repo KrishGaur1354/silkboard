@@ -21,7 +21,9 @@ import {
   Moon,
   X,
   Undo2,
-  Redo2
+  Redo2,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 
 const socket = io('http://localhost:3001');
@@ -45,6 +47,8 @@ const App = () => {
   const [historyStep, setHistoryStep] = useState(0);
 
   // ===== Whiteboard state =====
+  const [scale, setScale] = useState(1); // Canvas scale
+  const [position, setPosition] = useState({ x: 0, y: 0 }); // Canvas position
   const [mode, setMode] = useState('select'); // 'select', 'pencil', 'connector'
   const [shapes, setShapes] = useState([]);
   const [color, setColor] = useState('#000000');
@@ -177,31 +181,78 @@ const addToHistory = (newShapes) => {
   setHistoryStep(newHistory.length - 1);
 };
 
+  // State to track if middle mouse button is pressed
+const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
+const lastPointerPosition = useRef({ x: 0, y: 0 });
+
+// Handle middle mouse button down
+const handleMiddleMouseDown = (e) => {
+  if (e.evt.button === 1) { // Middle mouse button
+    setIsDraggingCanvas(true);
+    lastPointerPosition.current = {
+      x: e.evt.clientX,
+      y: e.evt.clientY,
+    };
+  }
+};
+
+// Handle middle mouse button move
+const handleMiddleMouseMove = (e) => {
+  if (isDraggingCanvas) {
+    const dx = e.evt.clientX - lastPointerPosition.current.x;
+    const dy = e.evt.clientY - lastPointerPosition.current.y;
+
+    setPosition((prev) => ({
+      x: prev.x + dx,
+      y: prev.y + dy,
+    }));
+
+    lastPointerPosition.current = {
+      x: e.evt.clientX,
+      y: e.evt.clientY,
+    };
+  }
+};
+
+// Handle middle mouse button up
+const handleMiddleMouseUp = () => {
+  setIsDraggingCanvas(false);
+};
+
   // ===== Pencil (free-drawing) handlers =====
-  const handleMouseDown = () => {
-    if (mode === 'pencil') {
-      setIsDrawing(true);
-      const pos = stageRef.current.getPointerPosition();
-      const id = 'line-' + Date.now();
-      const newLine = {
-        id,
-        type: 'line',
-        points: [pos.x, pos.y],
-        stroke: color,
-        strokeWidth: 2,
+  const handleMouseDown = (e) => {
+    if (e.evt.button === 0) { // Left mouse button (pen tool)
+      if (mode === 'pencil') {
+        setIsDrawing(true);
+        const pos = stageRef.current.getPointerPosition();
+        const id = 'line-' + Date.now();
+        const newLine = {
+          id,
+          type: 'line',
+          points: [pos.x, pos.y],
+          stroke: color,
+          strokeWidth: 2,
+        };
+        const updated = [...shapes, newLine];
+        setShapes(updated);
+        emitCanvasData(updated);
+        setSelectedId(id);
+      }
+    } else if (e.evt.button === 1) { // Middle mouse button (canvas drag)
+      setIsDraggingCanvas(true);
+      lastPointerPosition.current = {
+        x: e.evt.clientX,
+        y: e.evt.clientY,
       };
-      const updated = [...shapes, newLine];
-      setShapes(updated);
-      emitCanvasData(updated);
-      setSelectedId(id);
     }
   };
 
-  const handleMouseMove = () => {
+  const handleMouseMove = (e) => {
     if (!stageRef.current) return;
+  
     const pos = stageRef.current.getPointerPosition();
     emitCursorUpdate(pos, mode === 'pencil' && isDrawing);
-
+  
     if (mode === 'pencil' && isDrawing && selectedId) {
       setShapes((prevShapes) =>
         prevShapes.map((shape) => {
@@ -215,14 +266,39 @@ const addToHistory = (newShapes) => {
         })
       );
     }
+  
+    if (isDraggingCanvas) { // Middle mouse drag
+      const dx = e.evt.clientX - lastPointerPosition.current.x;
+      const dy = e.evt.clientY - lastPointerPosition.current.y;
+  
+      setPosition((prev) => ({
+        x: prev.x + dx,
+        y: prev.y + dy,
+      }));
+  
+      lastPointerPosition.current = {
+        x: e.evt.clientX,
+        y: e.evt.clientY,
+      };
+    }
   };
 
-  const handleMouseUp = () => {
-    if (mode === 'pencil' && isDrawing) {
+  const handleMouseUp = (e) => {
+    if (e.evt.button === 0 && mode === 'pencil' && isDrawing) { // Left mouse button (pen tool)
       setIsDrawing(false);
       addToHistory(shapes);
       emitCanvasData(shapes);
+    } else if (e.evt.button === 1) { // Middle mouse button (canvas drag)
+      setIsDraggingCanvas(false);
     }
+  };
+
+  const handleZoomIn = () => {
+    setScale((prevScale) => Math.min(prevScale * 1.2, 5)); // Limit max zoom
+  };
+  
+  const handleZoomOut = () => {
+    setScale((prevScale) => Math.max(prevScale / 1.2, 0.5)); // Limit min zoom
   };
 
   // ===== Connector Mode =====
@@ -674,10 +750,17 @@ const addToHistory = (newShapes) => {
     return (
       <div className={`min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'}`}>
         <div className="absolute top-4 right-4">
-          <Button onClick={toggleDarkMode}>
-            {darkMode ? 'Light Mode' : 'Dark Mode'}
-          </Button>
-        </div>
+  <Button
+    onClick={toggleDarkMode}
+    className="p-2 rounded-lg bg-transparent hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+  >
+    {darkMode ? (
+      <Sun className="w-5 h-5 text-white" /> // Sun icon for light mode
+    ) : (
+      <Moon className="w-5 h-5 text-gray-900" /> // Moon icon for dark mode
+    )}
+  </Button>
+</div>
         <div className={`shadow-lg rounded-lg p-8 w-full max-w-md ${
   darkMode ? 'bg-gray-800' : 'bg-gray-150'
 }`}> 
@@ -806,7 +889,9 @@ const addToHistory = (newShapes) => {
     color,
     onColorChange,
     undo,
-    redo 
+    redo,
+    handleZoomIn, 
+    handleZoomOut, 
   }) => {
     return (
       <div className={`flex items-center gap-4 p-3 border-b shadow-sm ${
@@ -916,6 +1001,18 @@ const addToHistory = (newShapes) => {
             onClick={toggleDarkMode}
             darkMode={darkMode}
           />
+          <ToolButton
+    icon={ZoomIn}
+    label="Zoom In"
+    onClick={handleZoomIn}
+    darkMode={darkMode}
+  />
+  <ToolButton
+    icon={ZoomOut}
+    label="Zoom Out"
+    onClick={handleZoomOut}
+    darkMode={darkMode}
+  />
         </ButtonGroup>
 
               {/* Add new Undo/Redo button group */}
@@ -960,55 +1057,57 @@ const addToHistory = (newShapes) => {
   clearCanvas={clearCanvas}
   darkMode={darkMode}
   toggleDarkMode={toggleDarkMode}
-  onImageUpload={() => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  }}
+  onImageUpload={() => fileInputRef.current.click()}
   color={color}
   onColorChange={handleColorChange}
-  undo={undo}  
+  undo={undo}
   redo={redo}
+  handleZoomIn={handleZoomIn} // Pass zoom-in function
+  handleZoomOut={handleZoomOut} // Pass zoom-out function
 />
         {/* Canvas Area */}
         <div className="flex-grow flex items-center justify-center relative">
-          <Stage
-            width={window.innerWidth * 0.7}
-            height={window.innerHeight * 0.9}
-            ref={stageRef}
-            onMouseDown={handleMouseDown}
-            onMousemove={handleMouseMove}
-            onMouseup={handleMouseUp}
-          >
-            <Layer>
-              {shapes.map((shape) => (
-                <React.Fragment key={shape.id}>
-                  {renderShape(shape)}
-                </React.Fragment>
-              ))}
-              <Transformer ref={transformerRef} />
-            </Layer>
-            {/* Cursor Overlay */}
-            <Layer>
-              {Object.entries(userCursors).map(([id, user]) => (
-                <Group key={id}>
-                  <Circle
-                    x={user.x}
-                    y={user.y}
-                    radius={5}
-                    fill={user.isDrawing ? 'red' : 'blue'}
-                  />
-                  <Text
-                    x={user.x + 8}
-                    y={user.y - 5}
-                    text={id === socket.id ? user.username + ' (You)' : user.username}
-                    fontSize={12}
-                    fill="black"
-                  />
-                </Group>
-              ))}
-            </Layer>
-          </Stage>
+        <Stage
+  width={window.innerWidth * 0.7}
+  height={window.innerHeight * 0.9}
+  ref={stageRef}
+  onMouseDown={handleMouseDown} // Combined handler for pen tool and canvas drag
+  onMousemove={handleMouseMove} // Combined handler for pen tool and canvas drag
+  onMouseup={handleMouseUp} // Combined handler for pen tool and canvas drag
+  scaleX={scale}
+  scaleY={scale}
+  x={position.x}
+  y={position.y}
+>
+  <Layer>
+    {shapes.map((shape) => (
+      <React.Fragment key={shape.id}>
+        {renderShape(shape)}
+      </React.Fragment>
+    ))}
+    <Transformer ref={transformerRef} />
+  </Layer>
+  {/* Cursor Overlay */}
+  <Layer>
+    {Object.entries(userCursors).map(([id, user]) => (
+      <Group key={id}>
+        <Circle
+          x={user.x}
+          y={user.y}
+          radius={5}
+          fill={user.isDrawing ? 'red' : 'blue'}
+        />
+        <Text
+          x={user.x + 8}
+          y={user.y - 5}
+          text={id === socket.id ? user.username + ' (You)' : user.username}
+          fontSize={12}
+          fill="black"
+        />
+      </Group>
+    ))}
+  </Layer>
+</Stage>
         </div>
       </div>
 
