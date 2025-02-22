@@ -4,6 +4,22 @@ import useImage from 'use-image';
 import io from 'socket.io-client';
 import { Button } from './components/ui/button';
 
+import { 
+  MousePointer2, 
+  Pencil, 
+  Square, 
+  Circle as CircleIcon, 
+  Diamond, 
+  Type, 
+  Link2, 
+  Trash2, 
+  Palette, 
+  Eraser, 
+  Upload, 
+  Sun, 
+  Moon 
+} from 'lucide-react';
+
 const socket = io('http://localhost:3001');
 
 // Helper function to generate a random passcode (6 alphanumeric characters)
@@ -693,6 +709,156 @@ const App = () => {
     );
   }
 
+
+// Define components first
+const ToolButton = ({ icon: Icon, label, onClick, active, className = '' }) => (
+  <div className="relative group">
+    <button 
+      onClick={onClick}
+      className={`
+        p-2 rounded-lg transition-all duration-200
+        flex items-center justify-center
+        w-10 h-10 
+        ${active 
+          ? 'bg-blue-500 text-white' 
+          : 'bg-white hover:bg-blue-100 text-gray-700 hover:text-blue-600'
+        }
+        border border-gray-200 hover:border-blue-300
+        ${className}
+      `}
+    >
+      <Icon className="w-5 h-5" />
+    </button>
+    <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 
+                    opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                    bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+      {label}
+    </div>
+  </div>
+);
+
+const ButtonGroup = ({ children, className = '' }) => (
+  <div className={`flex items-center gap-2 ${className}`}>
+    {children}
+  </div>
+);
+
+// Main Toolbar component
+const Toolbar = ({
+  mode,
+  setMode,
+  addShape,
+  addDiamond,
+  addText,
+  deleteSelected,
+  updateSelectedColor,
+  clearCanvas,
+  darkMode,
+  toggleDarkMode,
+  onImageUpload,
+  color,
+  onColorChange
+}) => {
+  return (
+    <div className="flex items-center gap-4 p-3 bg-white border-b border-gray-200 shadow-sm">
+      {/* Drawing Tools */}
+      <ButtonGroup>
+        <ToolButton
+          icon={MousePointer2}
+          label="Select"
+          onClick={() => setMode('select')}
+          active={mode === 'select'}
+        />
+        <ToolButton
+          icon={Pencil}
+          label="Pencil"
+          onClick={() => setMode('pencil')}
+          active={mode === 'pencil'}
+        />
+      </ButtonGroup>
+
+      {/* Shapes */}
+      <ButtonGroup>
+        <ToolButton
+          icon={Square}
+          label="Rectangle"
+          onClick={() => addShape('rectangle')}
+        />
+        <ToolButton
+          icon={CircleIcon}
+          label="Circle"
+          onClick={() => addShape('circle')}
+        />
+        <ToolButton
+          icon={Diamond}
+          label="Diamond"
+          onClick={addDiamond}
+        />
+        <ToolButton
+          icon={Type}
+          label="Text"
+          onClick={addText}
+        />
+        <ToolButton
+          icon={Link2}
+          label="Connector"
+          onClick={() => setMode('connector')}
+          active={mode === 'connector'}
+        />
+      </ButtonGroup>
+
+      {/* Actions */}
+      <ButtonGroup>
+        <ToolButton
+          icon={Trash2}
+          label="Delete"
+          onClick={deleteSelected}
+        />
+        <ToolButton
+          icon={Palette}
+          label="Update Color"
+          onClick={updateSelectedColor}
+        />
+        <ToolButton
+          icon={Eraser}
+          label="Clear Canvas"
+          onClick={clearCanvas}
+        />
+      </ButtonGroup>
+
+      {/* Color Picker */}
+      <div className="relative group">
+        <input
+          type="color"
+          value={color}
+          onChange={onColorChange}
+          className="w-10 h-10 rounded cursor-pointer"
+        />
+        <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 
+                      opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                      bg-gray-800 text-white text-xs px-2 py-1 rounded">
+          Pick Color
+        </div>
+      </div>
+
+      {/* Utilities */}
+      <ButtonGroup>
+        <ToolButton
+          icon={Upload}
+          label="Upload Image"
+          onClick={onImageUpload}
+        />
+        <ToolButton
+          icon={darkMode ? Sun : Moon}
+          label={darkMode ? "Light Mode" : "Dark Mode"}
+          onClick={toggleDarkMode}
+        />
+      </ButtonGroup>
+    </div>
+  );
+};
+
+
   // ===== Main whiteboard interface =====
   return (
     <div
@@ -702,54 +868,21 @@ const App = () => {
       {/* Left: Whiteboard Area */}
       <div className="flex-grow flex flex-col">
         {/* Top Toolbar */}
-        <div
-          className={`flex items-center justify-between px-6 py-3 shadow-md ${darkMode ? 'bg-gray-800' : 'bg-white'
-            }`}
-        >
-          <div className="flex items-center gap-4">
-            <Button onClick={() => setMode('select')}>Select</Button>
-            <Button onClick={() => setMode('pencil')}>Pencil</Button>
-            <Button onClick={() => addShape('rectangle')}>Rectangle</Button>
-            <Button onClick={() => addShape('circle')}>Circle</Button>
-            <Button onClick={addDiamond}>Diamond</Button>
-            <Button onClick={addText}>Text</Button>
-            <Button onClick={() => setMode('connector')}>Connector</Button>
-            <Button onClick={deleteSelected}>Delete</Button>
-            <Button onClick={updateSelectedColor}>Update Color</Button>
-            <Button onClick={clearCanvas}>Clear</Button>
-            <div className="flex items-center gap-2">
-              <label htmlFor="colorPicker" className="font-medium">
-                Color:
-              </label>
-              <input
-                id="colorPicker"
-                type="color"
-                value={color}
-                onChange={handleColorChange}
-                className="w-10 h-10 border rounded"
-              />
-            </div>
-            <Button
-              onClick={() =>
-                fileInputRef.current && fileInputRef.current.click()
-              }
-            >
-              Upload Image
-            </Button>
-            <input
-              type="file"
-              accept="image/*"
-              ref={fileInputRef}
-              style={{ display: 'none' }}
-              onChange={handleImageUpload}
-            />
-          </div>
-          <div>
-            <Button onClick={toggleDarkMode}>
-              {darkMode ? 'Light Mode' : 'Dark Mode'}
-            </Button>
-          </div>
-        </div>
+        <Toolbar
+          mode={mode}
+          setMode={setMode}
+          addShape={addShape}
+          addDiamond={addDiamond}
+          addText={addText}
+          deleteSelected={deleteSelected}
+          updateSelectedColor={updateSelectedColor}
+          clearCanvas={clearCanvas}
+          darkMode={darkMode}
+          toggleDarkMode={toggleDarkMode}
+          onImageUpload={() => fileInputRef.current.click()}
+          color={color}
+          onColorChange={handleColorChange}
+        />
         {/* Canvas Area */}
         <div className="flex-grow flex items-center justify-center relative">
           <Stage
