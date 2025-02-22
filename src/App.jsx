@@ -19,7 +19,11 @@ import {
   Upload, 
   Sun, 
   Moon,
-  X
+  X,
+  Undo2,
+  Redo2,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 
 const socket = io('http://localhost:3001');
@@ -38,7 +42,13 @@ const App = () => {
   const [passcode, setPasscode] = useState('');
   const [isCreatingSession, setIsCreatingSession] = useState(true);
 
+//state for undo/redo history
+  const [history, setHistory] = useState([[]]);
+  const [historyStep, setHistoryStep] = useState(0);
+
   // ===== Whiteboard state =====
+  const [scale, setScale] = useState(1); // Canvas scale
+  const [position, setPosition] = useState({ x: 0, y: 0 }); // Canvas position
   const [mode, setMode] = useState('select'); // 'select', 'pencil', 'connector'
   const [shapes, setShapes] = useState([]);
   const [color, setColor] = useState('#000000');
@@ -145,31 +155,104 @@ const App = () => {
     setChatInput('');
   };
 
+ // undo/redo functions
+// Add these functions near your other action functions
+const undo = () => {
+  if (historyStep > 0) {
+    setHistoryStep(historyStep - 1);
+    setShapes(history[historyStep - 1]);
+    emitCanvasData(history[historyStep - 1]);
+  }
+};
+
+const redo = () => {
+  if (historyStep < history.length - 1) {
+    setHistoryStep(historyStep + 1);
+    setShapes(history[historyStep + 1]);
+    emitCanvasData(history[historyStep + 1]);
+  }
+};
+
+// Add this helper function to manage history updates
+const addToHistory = (newShapes) => {
+  const newHistory = history.slice(0, historyStep + 1);
+  newHistory.push([...newShapes]);
+  setHistory(newHistory);
+  setHistoryStep(newHistory.length - 1);
+};
+
+  // State to track if middle mouse button is pressed
+const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
+const lastPointerPosition = useRef({ x: 0, y: 0 });
+
+// Handle middle mouse button down
+const handleMiddleMouseDown = (e) => {
+  if (e.evt.button === 1) { // Middle mouse button
+    setIsDraggingCanvas(true);
+    lastPointerPosition.current = {
+      x: e.evt.clientX,
+      y: e.evt.clientY,
+    };
+  }
+};
+
+// Handle middle mouse button move
+const handleMiddleMouseMove = (e) => {
+  if (isDraggingCanvas) {
+    const dx = e.evt.clientX - lastPointerPosition.current.x;
+    const dy = e.evt.clientY - lastPointerPosition.current.y;
+
+    setPosition((prev) => ({
+      x: prev.x + dx,
+      y: prev.y + dy,
+    }));
+
+    lastPointerPosition.current = {
+      x: e.evt.clientX,
+      y: e.evt.clientY,
+    };
+  }
+};
+
+// Handle middle mouse button up
+const handleMiddleMouseUp = () => {
+  setIsDraggingCanvas(false);
+};
+
   // ===== Pencil (free-drawing) handlers =====
-  const handleMouseDown = () => {
-    if (mode === 'pencil') {
-      setIsDrawing(true);
-      const pos = stageRef.current.getPointerPosition();
-      const id = 'line-' + Date.now();
-      const newLine = {
-        id,
-        type: 'line',
-        points: [pos.x, pos.y],
-        stroke: color,
-        strokeWidth: 2,
+  const handleMouseDown = (e) => {
+    if (e.evt.button === 0) { // Left mouse button (pen tool)
+      if (mode === 'pencil') {
+        setIsDrawing(true);
+        const pos = stageRef.current.getPointerPosition();
+        const id = 'line-' + Date.now();
+        const newLine = {
+          id,
+          type: 'line',
+          points: [pos.x, pos.y],
+          stroke: color,
+          strokeWidth: 2,
+        };
+        const updated = [...shapes, newLine];
+        setShapes(updated);
+        emitCanvasData(updated);
+        setSelectedId(id);
+      }
+    } else if (e.evt.button === 1) { // Middle mouse button (canvas drag)
+      setIsDraggingCanvas(true);
+      lastPointerPosition.current = {
+        x: e.evt.clientX,
+        y: e.evt.clientY,
       };
-      const updated = [...shapes, newLine];
-      setShapes(updated);
-      emitCanvasData(updated);
-      setSelectedId(id);
     }
   };
 
-  const handleMouseMove = () => {
+  const handleMouseMove = (e) => {
     if (!stageRef.current) return;
+  
     const pos = stageRef.current.getPointerPosition();
     emitCursorUpdate(pos, mode === 'pencil' && isDrawing);
-
+  
     if (mode === 'pencil' && isDrawing && selectedId) {
       setShapes((prevShapes) =>
         prevShapes.map((shape) => {
@@ -183,13 +266,39 @@ const App = () => {
         })
       );
     }
+  
+    if (isDraggingCanvas) { // Middle mouse drag
+      const dx = e.evt.clientX - lastPointerPosition.current.x;
+      const dy = e.evt.clientY - lastPointerPosition.current.y;
+  
+      setPosition((prev) => ({
+        x: prev.x + dx,
+        y: prev.y + dy,
+      }));
+  
+      lastPointerPosition.current = {
+        x: e.evt.clientX,
+        y: e.evt.clientY,
+      };
+    }
   };
 
-  const handleMouseUp = () => {
-    if (mode === 'pencil' && isDrawing) {
+  const handleMouseUp = (e) => {
+    if (e.evt.button === 0 && mode === 'pencil' && isDrawing) { // Left mouse button (pen tool)
       setIsDrawing(false);
+      addToHistory(shapes);
       emitCanvasData(shapes);
+    } else if (e.evt.button === 1) { // Middle mouse button (canvas drag)
+      setIsDraggingCanvas(false);
     }
+  };
+
+  const handleZoomIn = () => {
+    setScale((prevScale) => Math.min(prevScale * 1.2, 5)); // Limit max zoom
+  };
+  
+  const handleZoomOut = () => {
+    setScale((prevScale) => Math.max(prevScale / 1.2, 0.5)); // Limit min zoom
   };
 
   // ===== Connector Mode =====
@@ -213,6 +322,7 @@ const App = () => {
           };
           const updated = [...shapes, connectorLine];
           setShapes(updated);
+          addToHistory(updated);
           emitCanvasData(updated);
         }
         setConnectorStartId(null);
@@ -272,6 +382,7 @@ const App = () => {
     if (newShape) {
       const updated = [...shapes, newShape];
       setShapes(updated);
+      addToHistory(updated); 
       emitCanvasData(updated);
     }
   };
@@ -292,6 +403,7 @@ const App = () => {
     };
     const updated = [...shapes, newDiamond];
     setShapes(updated);
+    addToHistory(updated);
     emitCanvasData(updated);
   };
 
@@ -314,6 +426,7 @@ const App = () => {
     };
     const updated = [...shapes, newText];
     setShapes(updated);
+    addToHistory(updated);
     emitCanvasData(updated);
   };
 
@@ -339,6 +452,7 @@ const App = () => {
       };
       const updated = [...shapes, newImage];
       setShapes(updated);
+      addToHistory(updated);
       emitCanvasData(updated);
     };
     reader.readAsDataURL(file);
@@ -350,6 +464,7 @@ const App = () => {
       const updated = shapes.filter((s) => s.id !== selectedId);
       setShapes(updated);
       setSelectedId(null);
+      addToHistory(updated);
       emitCanvasData(updated);
     }
   };
@@ -363,6 +478,7 @@ const App = () => {
           : s
       );
       setShapes(updated);
+      addToHistory(updated);
       emitCanvasData(updated);
     }
   };
@@ -372,6 +488,7 @@ const App = () => {
     setShapes([]);
     setSelectedId(null);
     setConnectorStartId(null);
+    addToHistory([]);
     emitCanvasData([]);
   };
 
@@ -435,6 +552,7 @@ const App = () => {
     });
 
     setShapes(updatedShapes);
+    addToHistory(updatedShapes);
     emitCanvasData(updatedShapes);
   };
 
@@ -457,6 +575,7 @@ const App = () => {
             s.id === shape.id ? { ...s, x: pos.x, y: pos.y } : s
           );
           setShapes(updated);
+          addToHistory(updated); // Add to history after drag
           emitCanvasData(updated);
         }}
         onTransformEnd={(e) => onTransformEnd(e.target, shape)}
@@ -485,6 +604,7 @@ const App = () => {
                 s.id === shape.id ? { ...s, x: pos.x, y: pos.y } : s
               );
               setShapes(updated);
+              addToHistory(updated); // Add to history after drag
               emitCanvasData(updated);
             }}
             onTransformEnd={(e) => onTransformEnd(e.target, shape)}
@@ -508,6 +628,7 @@ const App = () => {
                 s.id === shape.id ? { ...s, x: pos.x, y: pos.y } : s
               );
               setShapes(updated);
+              addToHistory(updated); // Add to history after drag
               emitCanvasData(updated);
             }}
             onTransformEnd={(e) => onTransformEnd(e.target, shape)}
@@ -537,6 +658,7 @@ const App = () => {
                 s.id === shape.id ? { ...s, x: pos.x, y: pos.y } : s
               );
               setShapes(updated);
+              addToHistory(updated); // Add to history after drag
               emitCanvasData(updated);
             }}
             onTransformEnd={(e) => onTransformEnd(e.target, shape)}
@@ -564,6 +686,7 @@ const App = () => {
                 s.id === shape.id ? { ...s, x: pos.x, y: pos.y } : s
               );
               setShapes(updated);
+              addToHistory(updated); // Add to history after drag
               emitCanvasData(updated);
             }}
             onTransformEnd={(e) => onTransformEnd(e.target, shape)}
@@ -627,34 +750,47 @@ const App = () => {
     return (
       <div className={`min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'}`}>
         <div className="absolute top-4 right-4">
-          <Button onClick={toggleDarkMode}>
-            {darkMode ? 'Light Mode' : 'Dark Mode'}
-          </Button>
-        </div>
-        <div className="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-8 w-full max-w-md">
+  <Button
+    onClick={toggleDarkMode}
+    className="p-2 rounded-lg bg-transparent hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+  >
+    {darkMode ? (
+      <Sun className="w-5 h-5 text-white" /> // Sun icon for light mode
+    ) : (
+      <Moon className="w-5 h-5 text-gray-900" /> // Moon icon for dark mode
+    )}
+  </Button>
+</div>
+        <div className={`shadow-lg rounded-lg p-8 w-full max-w-md ${
+  darkMode ? 'bg-gray-800' : 'bg-gray-150'
+}`}> 
           <h1 className="text-2xl font-bold mb-6 text-center">
             Join or Create a Session
           </h1>
           <div className="mb-4">
             <label className="block mb-1">Username:</label>
             <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full border rounded p-2 bg-gray-50 dark:bg-gray-700"
-            />
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className={`w-full border rounded p-2 ${
+              darkMode ? 'bg-gray-700' : 'bg-gray-50'
+             }`}
+/>
           </div>
           {isCreatingSession ? (
             <div className="mb-4">
               <label className="block mb-1">Passcode (auto-generated):</label>
               <div className="flex items-center">
-                <input
-                  type="text"
-                  value={passcode}
-                  readOnly
-                  className="w-full border rounded p-2 mr-2 bg-gray-50 dark:bg-gray-700"
-                  placeholder="Click Generate"
-                />
+              <input
+              type="text"
+              value={passcode}
+              readOnly
+              className={`w-full border rounded p-2 mr-2 ${
+                darkMode ? 'bg-gray-700' : 'bg-gray-50'
+               }`}
+              placeholder="Click Generate"
+              />
                 <Button onClick={() => setPasscode(generatePasscode())}>
                   Generate
                 </Button>
@@ -751,7 +887,11 @@ const App = () => {
     toggleDarkMode,
     onImageUpload,
     color,
-    onColorChange
+    onColorChange,
+    undo,
+    redo,
+    handleZoomIn, 
+    handleZoomOut, 
   }) => {
     return (
       <div className={`flex items-center gap-4 p-3 border-b shadow-sm ${
@@ -774,64 +914,64 @@ const App = () => {
             darkMode={darkMode} // Pass darkMode prop
           />
         </ButtonGroup>
-  
+        
         {/* Shapes */}
         <ButtonGroup>
           <ToolButton
             icon={Square}
             label="Rectangle"
             onClick={() => addShape('rectangle')}
-            darkMode={darkMode} // Pass darkMode prop
+            darkMode={darkMode}
           />
           <ToolButton
             icon={CircleIcon}
             label="Circle"
             onClick={() => addShape('circle')}
-            darkMode={darkMode} // Pass darkMode prop
+            darkMode={darkMode}
           />
           <ToolButton
             icon={Diamond}
             label="Diamond"
             onClick={addDiamond}
-            darkMode={darkMode} // Pass darkMode prop
+            darkMode={darkMode}
           />
           <ToolButton
             icon={Type}
             label="Text"
             onClick={addText}
-            darkMode={darkMode} // Pass darkMode prop
+            darkMode={darkMode}
           />
           <ToolButton
             icon={Link2}
             label="Connector"
             onClick={() => setMode('connector')}
             active={mode === 'connector'}
-            darkMode={darkMode} // Pass darkMode prop
+            darkMode={darkMode}
           />
         </ButtonGroup>
-  
+
         {/* Actions */}
         <ButtonGroup>
           <ToolButton
             icon={Trash2}
             label="Delete"
             onClick={deleteSelected}
-            darkMode={darkMode} // Pass darkMode prop
+            darkMode={darkMode}
           />
           <ToolButton
             icon={Palette}
             label="Update Color"
             onClick={updateSelectedColor}
-            darkMode={darkMode} // Pass darkMode prop
+            darkMode={darkMode}
           />
           <ToolButton
             icon={Eraser}
             label="Clear Canvas"
             onClick={clearCanvas}
-            darkMode={darkMode} // Pass darkMode prop
+            darkMode={darkMode}
           />
         </ButtonGroup>
-  
+
         {/* Color Picker */}
         <div className="relative group">
           <input
@@ -846,22 +986,48 @@ const App = () => {
             Pick Color
           </div>
         </div>
-  
+
         {/* Utilities */}
         <ButtonGroup>
           <ToolButton
             icon={Upload}
             label="Upload Image"
             onClick={onImageUpload}
-            darkMode={darkMode} // Pass darkMode prop
+            darkMode={darkMode}
           />
           <ToolButton
             icon={darkMode ? Sun : Moon}
             label={darkMode ? "Light Mode" : "Dark Mode"}
             onClick={toggleDarkMode}
-            darkMode={darkMode} // Pass darkMode prop
+            darkMode={darkMode}
           />
+          <ToolButton
+    icon={ZoomIn}
+    label="Zoom In"
+    onClick={handleZoomIn}
+    darkMode={darkMode}
+  />
+  <ToolButton
+    icon={ZoomOut}
+    label="Zoom Out"
+    onClick={handleZoomOut}
+    darkMode={darkMode}
+  />
         </ButtonGroup>
+
+              {/* Add new Undo/Redo button group */}
+      <ButtonGroup>
+        <ToolButton
+          icon={Undo2}
+          label="Undo"
+          onClick={undo}
+        />
+        <ToolButton
+          icon={Redo2}
+          label="Redo"
+          onClick={redo}
+        />
+      </ButtonGroup>
       </div>
     );
   };
@@ -891,53 +1057,57 @@ const App = () => {
   clearCanvas={clearCanvas}
   darkMode={darkMode}
   toggleDarkMode={toggleDarkMode}
-  onImageUpload={() => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  }}
+  onImageUpload={() => fileInputRef.current.click()}
   color={color}
   onColorChange={handleColorChange}
+  undo={undo}
+  redo={redo}
+  handleZoomIn={handleZoomIn} // Pass zoom-in function
+  handleZoomOut={handleZoomOut} // Pass zoom-out function
 />
         {/* Canvas Area */}
         <div className="flex-grow flex items-center justify-center relative">
-          <Stage
-            width={window.innerWidth * 0.7}
-            height={window.innerHeight * 0.9}
-            ref={stageRef}
-            onMouseDown={handleMouseDown}
-            onMousemove={handleMouseMove}
-            onMouseup={handleMouseUp}
-          >
-            <Layer>
-              {shapes.map((shape) => (
-                <React.Fragment key={shape.id}>
-                  {renderShape(shape)}
-                </React.Fragment>
-              ))}
-              <Transformer ref={transformerRef} />
-            </Layer>
-            {/* Cursor Overlay */}
-            <Layer>
-              {Object.entries(userCursors).map(([id, user]) => (
-                <Group key={id}>
-                  <Circle
-                    x={user.x}
-                    y={user.y}
-                    radius={5}
-                    fill={user.isDrawing ? 'red' : 'blue'}
-                  />
-                  <Text
-                    x={user.x + 8}
-                    y={user.y - 5}
-                    text={id === socket.id ? user.username + ' (You)' : user.username}
-                    fontSize={12}
-                    fill="black"
-                  />
-                </Group>
-              ))}
-            </Layer>
-          </Stage>
+        <Stage
+  width={window.innerWidth * 0.7}
+  height={window.innerHeight * 0.9}
+  ref={stageRef}
+  onMouseDown={handleMouseDown} // Combined handler for pen tool and canvas drag
+  onMousemove={handleMouseMove} // Combined handler for pen tool and canvas drag
+  onMouseup={handleMouseUp} // Combined handler for pen tool and canvas drag
+  scaleX={scale}
+  scaleY={scale}
+  x={position.x}
+  y={position.y}
+>
+  <Layer>
+    {shapes.map((shape) => (
+      <React.Fragment key={shape.id}>
+        {renderShape(shape)}
+      </React.Fragment>
+    ))}
+    <Transformer ref={transformerRef} />
+  </Layer>
+  {/* Cursor Overlay */}
+  <Layer>
+    {Object.entries(userCursors).map(([id, user]) => (
+      <Group key={id}>
+        <Circle
+          x={user.x}
+          y={user.y}
+          radius={5}
+          fill={user.isDrawing ? 'red' : 'blue'}
+        />
+        <Text
+          x={user.x + 8}
+          y={user.y - 5}
+          text={id === socket.id ? user.username + ' (You)' : user.username}
+          fontSize={12}
+          fill="black"
+        />
+      </Group>
+    ))}
+  </Layer>
+</Stage>
         </div>
       </div>
 
