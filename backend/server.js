@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const fetch = require('node-fetch');
-require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
@@ -48,6 +47,14 @@ io.on('connection', (socket) => {
       socket.to(socket.passcode).emit('user-disconnect', socket.id);
     }
     console.log('User disconnected:', socket.id);
+  });
+
+  // When a user sends message, notify others in the room.
+  socket.on('chat-message', (msg) => {
+    if (socket.passcode) {
+      socket.to(socket.passcode).emit('chat-message', msg);
+    }
+    console.log(msg.username, "says:", msg.text);
   });
 });
 

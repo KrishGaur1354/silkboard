@@ -81,6 +81,7 @@ const App = () => {
 
     // Receive chat messages
     socket.on('chat-message', (msg) => {
+      console.log(msg);
       setMessages((prev) => [...prev, msg]);
     });
 
@@ -608,9 +609,8 @@ const App = () => {
   if (!isLoggedIn) {
     return (
       <div
-        className={`min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 ${
-          darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'
-        }`}
+        className={`min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'
+          }`}
       >
         <div className="absolute top-4 right-4">
           <Button onClick={toggleDarkMode}>
@@ -696,17 +696,15 @@ const App = () => {
   // ===== Main whiteboard interface =====
   return (
     <div
-      className={`flex h-screen transition-colors duration-300 ${
-        darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'
-      }`}
+      className={`flex h-screen transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'
+        }`}
     >
       {/* Left: Whiteboard Area */}
       <div className="flex-grow flex flex-col">
         {/* Top Toolbar */}
         <div
-          className={`flex items-center justify-between px-6 py-3 shadow-md ${
-            darkMode ? 'bg-gray-800' : 'bg-white'
-          }`}
+          className={`flex items-center justify-between px-6 py-3 shadow-md ${darkMode ? 'bg-gray-800' : 'bg-white'
+            }`}
         >
           <div className="flex items-center gap-4">
             <Button onClick={() => setMode('select')}>Select</Button>
