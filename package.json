@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@xyflow/react": "^12.4.3",
+    "canvasjs": "^1.8.3",
     "fabric": "^5.3.0",
     "konva": "^9.3.18",
     "lucide-react": "^0.475.0",
