@@ -221,24 +221,25 @@ const handleMiddleMouseUp = () => {
 
   // ===== Pencil (free-drawing) handlers =====
   const handleMouseDown = (e) => {
-    if (e.evt.button === 0) { // Left mouse button (pen tool)
+    if (e.evt.button === 0) { // Left mouse button
       if (mode === 'pencil') {
         setIsDrawing(true);
         const pos = stageRef.current.getPointerPosition();
-        const id = 'line-' + Date.now();
+        const id = 'pencil-' + Date.now();
         const newLine = {
           id,
-          type: 'line',
+          type: 'pencil-line',
           points: [pos.x, pos.y],
           stroke: color,
           strokeWidth: 2,
+          draggable: true,
         };
         const updated = [...shapes, newLine];
         setShapes(updated);
         emitCanvasData(updated);
         setSelectedId(id);
       }
-    } else if (e.evt.button === 1) { // Middle mouse button (canvas drag)
+    } else if (e.evt.button === 1) {
       setIsDraggingCanvas(true);
       lastPointerPosition.current = {
         x: e.evt.clientX,
@@ -254,17 +255,15 @@ const handleMiddleMouseUp = () => {
     emitCursorUpdate(pos, mode === 'pencil' && isDrawing);
   
     if (mode === 'pencil' && isDrawing && selectedId) {
-      setShapes((prevShapes) =>
-        prevShapes.map((shape) => {
-          if (shape.id === selectedId && shape.type === 'line') {
-            return {
-              ...shape,
-              points: [...shape.points, pos.x, pos.y],
-            };
-          }
-          return shape;
-        })
-      );
+      const lastLine = shapes.find(shape => shape.id === selectedId);
+      if (lastLine) {
+        const newPoints = [...lastLine.points, pos.x, pos.y];
+        const updated = shapes.map(shape =>
+          shape.id === selectedId ? { ...shape, points: newPoints } : shape
+        );
+        setShapes(updated);
+        emitCanvasData(updated);
+      }
     }
   
     if (isDraggingCanvas) { // Middle mouse drag
@@ -284,11 +283,22 @@ const handleMiddleMouseUp = () => {
   };
 
   const handleMouseUp = (e) => {
-    if (e.evt.button === 0 && mode === 'pencil' && isDrawing) { // Left mouse button (pen tool)
+    if (e.evt.button === 0 && mode === 'pencil' && isDrawing) {
       setIsDrawing(false);
-      addToHistory(shapes);
-      emitCanvasData(shapes);
-    } else if (e.evt.button === 1) { // Middle mouse button (canvas drag)
+      if (selectedId) {
+        const drawnLine = shapes.find(shape => shape.id === selectedId);
+        if (drawnLine && drawnLine.points.length > 2) {
+          addToHistory(shapes);
+          emitCanvasData(shapes);
+        } else {
+          // Remove the line if it's too short (just a click)
+          const updated = shapes.filter(shape => shape.id !== selectedId);
+          setShapes(updated);
+          emitCanvasData(updated);
+        }
+      }
+      setSelectedId(null);
+    } else if (e.evt.button === 1) {
       setIsDraggingCanvas(false);
     }
   };
@@ -501,10 +511,34 @@ const handleMiddleMouseUp = () => {
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
     const rotation = node.rotation();
-
+  
     const updatedShapes = shapes.map((s) => {
       if (s.id !== shape.id) return s;
-
+  
+      if (s.type === 'line') {
+        // For lines, apply the transformation to all points
+        const newPoints = [...s.points];
+        for (let i = 0; i < newPoints.length; i += 2) {
+          const point = {
+            x: newPoints[i],
+            y: newPoints[i + 1]
+          };
+          // Apply scaling and rotation
+          const newPoint = {
+            x: point.x * scaleX,
+            y: point.y * scaleY
+          };
+          newPoints[i] = newPoint.x;
+          newPoints[i + 1] = newPoint.y;
+        }
+        return {
+          ...s,
+          points: newPoints,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: rotation
+        };
+      }
       if (s.type === 'rect' || s.type === 'text' || s.type === 'image') {
         const newWidth = s.width * scaleX;
         const newHeight = s.height * scaleY;
@@ -692,19 +726,97 @@ const handleMiddleMouseUp = () => {
             onTransformEnd={(e) => onTransformEnd(e.target, shape)}
           />
         );
-      case 'line':
+        case 'line':
+          return (
+            <Line
+              key={shape.id}
+              id={shape.id}
+              points={shape.points}
+              stroke={shape.stroke || '#000'}
+              strokeWidth={shape.strokeWidth || 2}
+              dash={shape.dash || []}
+              draggable={true}
+              onClick={() => {
+                if (mode === 'select') {
+                  setSelectedId(shape.id);
+                }
+              }}
+              onDragEnd={(e) => {
+                const pos = e.target.position();
+                const updated = shapes.map((s) =>
+                  s.id === shape.id ? {
+                    ...s,
+                    points: s.points.map((point, i) => {
+                      return i % 2 === 0 ? point + pos.x : point + pos.y;
+                    })
+                  } : s
+                );
+                e.target.position({ x: 0, y: 0 }); // Reset position after updating points
+                setShapes(updated);
+                addToHistory(updated);
+                emitCanvasData(updated);
+              }}
+              onTransformEnd={(e) => onTransformEnd(e.target, shape)}
+            />
+          );
+        
+      case 'image':
+        return <URLImage key={shape.id} shape={shape} />;
+      case 'pencil-line':
         return (
           <Line
             key={shape.id}
             id={shape.id}
             points={shape.points}
-            stroke={shape.stroke || '#000'}
-            strokeWidth={shape.strokeWidth || 2}
-            dash={shape.dash || []}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            lineCap="round"
+            lineJoin="round"
+            draggable
+            onClick={() => {
+              if (mode === 'select') {
+                setSelectedId(shape.id);
+              }
+            }}
+            onDragEnd={(e) => {
+              const pos = e.target.position();
+              const updatedPoints = shape.points.map((point, i) => {
+                return i % 2 === 0 ? point + pos.x : point + pos.y;
+              });
+              const updated = shapes.map(s =>
+                s.id === shape.id ? { ...s, points: updatedPoints } : s
+              );
+              e.target.position({ x: 0, y: 0 }); // Reset position
+              setShapes(updated);
+              addToHistory(updated);
+              emitCanvasData(updated);
+            }}
+            onTransformEnd={(e) => {
+              const node = e.target;
+              const scaleX = node.scaleX();
+              const scaleY = node.scaleY();
+              const rotation = node.rotation();
+              
+              const updatedPoints = shape.points.map((point, i) => {
+                return i % 2 === 0 ? point * scaleX : point * scaleY;
+              });
+              
+              const updated = shapes.map(s =>
+                s.id === shape.id ? {
+                  ...s,
+                  points: updatedPoints,
+                  scaleX: 1,
+                  scaleY: 1,
+                  rotation: rotation || 0
+                } : s
+              );
+              
+              setShapes(updated);
+              addToHistory(updated);
+              emitCanvasData(updated);
+            }}
           />
         );
-      case 'image':
-        return <URLImage key={shape.id} shape={shape} />;
       default:
         return null;
     }
