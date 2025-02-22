@@ -7,7 +7,8 @@ import { Button } from './components/ui/button';
 import { 
   MousePointer2, 
   Pencil, 
-  Square, 
+  Square,
+  MessageCircle, 
   Circle as CircleIcon, 
   Diamond, 
   Type, 
@@ -17,7 +18,8 @@ import {
   Eraser, 
   Upload, 
   Sun, 
-  Moon 
+  Moon,
+  X
 } from 'lucide-react';
 
 const socket = io('http://localhost:3001');
@@ -25,6 +27,9 @@ const socket = io('http://localhost:3001');
 // Helper function to generate a random passcode (6 alphanumeric characters)
 const generatePasscode = () =>
   Math.random().toString(36).substring(2, 8).toUpperCase();
+
+// Set chat width limits
+const MIN_CHAT_WIDTH = 300;
 
 const App = () => {
   // ===== Authentication / Session state =====
@@ -53,9 +58,16 @@ const App = () => {
   // ===== Chat state =====
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
+  const [chatWidth, setChatWidth] = useState(MIN_CHAT_WIDTH);
+  const [chatVisible, setChatVisible] = useState(true);
 
   // ===== Konva Transformer reference =====
   const transformerRef = useRef(null);
+
+  // Chat resizing refs
+  const resizingChat = useRef(false);
+  const initialChatX = useRef(0);
+  const initialChatWidth = useRef(chatWidth);
 
   // ===== Join session =====
   useEffect(() => {
@@ -66,14 +78,12 @@ const App = () => {
 
   // ===== Socket Listeners =====
   useEffect(() => {
-    // Receive shapes updates
     socket.on('canvas-data', (data) => {
       if (data.userId !== socket.id) {
         setShapes(data.shapes);
       }
     });
 
-    // Receive presence (cursor) updates
     socket.on('user-update', (data) => {
       setUserCursors((prev) => ({
         ...prev,
@@ -86,7 +96,6 @@ const App = () => {
       }));
     });
 
-    // Remove disconnected users
     socket.on('user-disconnect', (userId) => {
       setUserCursors((prev) => {
         const updated = { ...prev };
@@ -95,7 +104,6 @@ const App = () => {
       });
     });
 
-    // Receive chat messages
     socket.on('chat-message', (msg) => {
       console.log(msg);
       setMessages((prev) => [...prev, msg]);
@@ -132,9 +140,7 @@ const App = () => {
       username,
       text: chatInput.trim(),
     };
-    // Send to server
     socket.emit('chat-message', msgData);
-    // Also add it to our own local messages
     setMessages((prev) => [...prev, msgData]);
     setChatInput('');
   };
@@ -162,7 +168,6 @@ const App = () => {
   const handleMouseMove = () => {
     if (!stageRef.current) return;
     const pos = stageRef.current.getPointerPosition();
-    // Always emit the current cursor position
     emitCursorUpdate(pos, mode === 'pencil' && isDrawing);
 
     if (mode === 'pencil' && isDrawing && selectedId) {
@@ -193,7 +198,6 @@ const App = () => {
       if (!connectorStartId) {
         setConnectorStartId(shape.id);
       } else if (connectorStartId !== shape.id) {
-        // Connect the two shapes by their center
         const startShape = shapes.find((s) => s.id === connectorStartId);
         if (startShape) {
           const startCenter = getCenterOfShape(startShape);
@@ -220,23 +224,15 @@ const App = () => {
 
   // Calculate the center of a shape
   const getCenterOfShape = (s) => {
-    // If the shape has a bounding box (rect, diamond, text, image)
-    // we can compute center as x + width/2, y + height/2
     if (s.type === 'rect' || s.type === 'text' || s.type === 'image') {
       return { x: s.x + (s.width || 100) / 2, y: s.y + (s.height || 30) / 2 };
     }
-    // For circle
     if (s.type === 'circle') {
       return { x: s.x, y: s.y };
     }
-    // For diamond
     if (s.type === 'diamond') {
-      return {
-        x: s.x + (s.width || 120) / 2,
-        y: s.y + (s.height || 80) / 2,
-      };
+      return { x: s.x + (s.width || 120) / 2, y: s.y + (s.height || 80) / 2 };
     }
-    // For line, just take the start point
     if (s.type === 'line' && s.points.length >= 2) {
       return { x: s.points[0], y: s.points[1] };
     }
@@ -280,7 +276,6 @@ const App = () => {
     }
   };
 
-  // Diamond shape
   const addDiamond = () => {
     const id = 'diamond-' + Date.now();
     const newDiamond = {
@@ -300,7 +295,6 @@ const App = () => {
     emitCanvasData(updated);
   };
 
-  // Text element
   const addText = () => {
     const id = 'text-' + Date.now();
     const newText = {
@@ -336,8 +330,8 @@ const App = () => {
         type: 'image',
         x: 100,
         y: 100,
-        width: 200, // default
-        height: 200, // default
+        width: 200,
+        height: 200,
         src: dataUrl,
         rotation: 0,
         scaleX: 1,
@@ -386,7 +380,6 @@ const App = () => {
   };
 
   // ===== Render the shapes =====
-  // We also attach transform events to each shape for resizing/rotating
   const onTransformEnd = (node, shape) => {
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
@@ -410,7 +403,6 @@ const App = () => {
         };
       }
       if (s.type === 'circle') {
-        // For circle, let's approximate radius from scale
         const newRadius = s.radius * (scaleX + scaleY) / 2;
         return {
           ...s,
@@ -437,7 +429,6 @@ const App = () => {
         };
       }
       if (s.type === 'line') {
-        // We won't handle transform for free lines or connectors in this example
         return s;
       }
       return s;
@@ -463,9 +454,7 @@ const App = () => {
         onDragEnd={(e) => {
           const pos = e.target.position();
           const updated = shapes.map((s) =>
-            s.id === shape.id
-              ? { ...s, x: pos.x, y: pos.y }
-              : s
+            s.id === shape.id ? { ...s, x: pos.x, y: pos.y } : s
           );
           setShapes(updated);
           emitCanvasData(updated);
@@ -475,7 +464,6 @@ const App = () => {
     );
   };
 
-  // Renders each shape with transform & drag events
   const renderShape = (shape) => {
     switch (shape.type) {
       case 'rect':
@@ -526,7 +514,6 @@ const App = () => {
           />
         );
       case 'diamond':
-        // We'll treat diamond as a rotated square. We'll compute points from width/height
         return (
           <Line
             key={shape.id}
@@ -583,7 +570,6 @@ const App = () => {
           />
         );
       case 'line':
-        // Lines (free-drawn or connectors)
         return (
           <Line
             key={shape.id}
@@ -621,13 +607,25 @@ const App = () => {
     tr.getLayer()?.batchDraw();
   }, [selectedId, shapes]);
 
+  // ===== Chat Resizing Handlers =====
+  const handleChatResizeMouseMove = (e) => {
+    if (!resizingChat.current) return;
+    const delta = initialChatX.current - e.clientX;
+    let newWidth = initialChatWidth.current + delta;
+    if (newWidth < MIN_CHAT_WIDTH) newWidth = MIN_CHAT_WIDTH; // Removed MAX_CHAT_WIDTH check
+    setChatWidth(newWidth);
+  };
+
+  const handleChatResizeMouseUp = () => {
+    resizingChat.current = false;
+    window.removeEventListener('mousemove', handleChatResizeMouseMove);
+    window.removeEventListener('mouseup', handleChatResizeMouseUp);
+  };
+
   // ===== Login / Session screen =====
   if (!isLoggedIn) {
     return (
-      <div
-        className={`min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'
-          }`}
-      >
+      <div className={`min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'}`}>
         <div className="absolute top-4 right-4">
           <Button onClick={toggleDarkMode}>
             {darkMode ? 'Light Mode' : 'Dark Mode'}
@@ -699,9 +697,7 @@ const App = () => {
                 setPasscode('');
               }}
             >
-              {isCreatingSession
-                ? 'Switch to Join Session'
-                : 'Switch to Create Session'}
+              {isCreatingSession ? 'Switch to Join Session' : 'Switch to Create Session'}
             </Button>
           </div>
         </div>
@@ -709,165 +705,159 @@ const App = () => {
     );
   }
 
-
-// Define components first
-const ToolButton = ({ icon: Icon, label, onClick, active, className = '' }) => (
-  <div className="relative group">
-    <button 
-      onClick={onClick}
-      className={`
-        p-2 rounded-lg transition-all duration-200
-        flex items-center justify-center
-        w-10 h-10 
-        ${active 
-          ? 'bg-blue-500 text-white' 
-          : 'bg-white hover:bg-blue-100 text-gray-700 hover:text-blue-600'
-        }
-        border border-gray-200 hover:border-blue-300
-        ${className}
-      `}
-    >
-      <Icon className="w-5 h-5" />
-    </button>
-    <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 
-                    opacity-0 group-hover:opacity-100 transition-opacity duration-200
-                    bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-      {label}
-    </div>
-  </div>
-);
-
-const ButtonGroup = ({ children, className = '' }) => (
-  <div className={`flex items-center gap-2 ${className}`}>
-    {children}
-  </div>
-);
-
-// Main Toolbar component
-const Toolbar = ({
-  mode,
-  setMode,
-  addShape,
-  addDiamond,
-  addText,
-  deleteSelected,
-  updateSelectedColor,
-  clearCanvas,
-  darkMode,
-  toggleDarkMode,
-  onImageUpload,
-  color,
-  onColorChange
-}) => {
-  return (
-    <div className="flex items-center gap-4 p-3 bg-white border-b border-gray-200 shadow-sm">
-      {/* Drawing Tools */}
-      <ButtonGroup>
-        <ToolButton
-          icon={MousePointer2}
-          label="Select"
-          onClick={() => setMode('select')}
-          active={mode === 'select'}
-        />
-        <ToolButton
-          icon={Pencil}
-          label="Pencil"
-          onClick={() => setMode('pencil')}
-          active={mode === 'pencil'}
-        />
-      </ButtonGroup>
-
-      {/* Shapes */}
-      <ButtonGroup>
-        <ToolButton
-          icon={Square}
-          label="Rectangle"
-          onClick={() => addShape('rectangle')}
-        />
-        <ToolButton
-          icon={CircleIcon}
-          label="Circle"
-          onClick={() => addShape('circle')}
-        />
-        <ToolButton
-          icon={Diamond}
-          label="Diamond"
-          onClick={addDiamond}
-        />
-        <ToolButton
-          icon={Type}
-          label="Text"
-          onClick={addText}
-        />
-        <ToolButton
-          icon={Link2}
-          label="Connector"
-          onClick={() => setMode('connector')}
-          active={mode === 'connector'}
-        />
-      </ButtonGroup>
-
-      {/* Actions */}
-      <ButtonGroup>
-        <ToolButton
-          icon={Trash2}
-          label="Delete"
-          onClick={deleteSelected}
-        />
-        <ToolButton
-          icon={Palette}
-          label="Update Color"
-          onClick={updateSelectedColor}
-        />
-        <ToolButton
-          icon={Eraser}
-          label="Clear Canvas"
-          onClick={clearCanvas}
-        />
-      </ButtonGroup>
-
-      {/* Color Picker */}
-      <div className="relative group">
-        <input
-          type="color"
-          value={color}
-          onChange={onColorChange}
-          className="w-10 h-10 rounded cursor-pointer"
-        />
-        <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 
+  // Define Toolbar and supporting components (navbar remains unchanged)
+  const ToolButton = ({ icon: Icon, label, onClick, active, className = '' }) => (
+    <div className="relative group">
+      <button 
+        onClick={onClick}
+        className={`
+          p-2 rounded-lg transition-all duration-200
+          flex items-center justify-center
+          w-10 h-10 
+          ${active 
+            ? 'bg-blue-500 text-white' 
+            : 'bg-white hover:bg-blue-100 text-gray-700 hover:text-blue-600'
+          }
+          border border-gray-200 hover:border-blue-300
+          ${className}
+        `}
+      >
+        <Icon className="w-5 h-5" />
+      </button>
+      <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 
                       opacity-0 group-hover:opacity-100 transition-opacity duration-200
-                      bg-gray-800 text-white text-xs px-2 py-1 rounded">
-          Pick Color
-        </div>
+                      bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+        {label}
       </div>
-
-      {/* Utilities */}
-      <ButtonGroup>
-        <ToolButton
-          icon={Upload}
-          label="Upload Image"
-          onClick={onImageUpload}
-        />
-        <ToolButton
-          icon={darkMode ? Sun : Moon}
-          label={darkMode ? "Light Mode" : "Dark Mode"}
-          onClick={toggleDarkMode}
-        />
-      </ButtonGroup>
     </div>
   );
-};
 
+  const ButtonGroup = ({ children, className = '' }) => (
+    <div className={`flex items-center gap-2 ${className}`}>
+      {children}
+    </div>
+  );
+
+  const Toolbar = ({
+    mode,
+    setMode,
+    addShape,
+    addDiamond,
+    addText,
+    deleteSelected,
+    updateSelectedColor,
+    clearCanvas,
+    darkMode,
+    toggleDarkMode,
+    onImageUpload,
+    color,
+    onColorChange
+  }) => {
+    return (
+      <div className="flex items-center gap-4 p-3 bg-white border-b border-gray-200 shadow-sm">
+        {/* Drawing Tools */}
+        <ButtonGroup>
+          <ToolButton
+            icon={MousePointer2}
+            label="Select"
+            onClick={() => setMode('select')}
+            active={mode === 'select'}
+          />
+          <ToolButton
+            icon={Pencil}
+            label="Pencil"
+            onClick={() => setMode('pencil')}
+            active={mode === 'pencil'}
+          />
+        </ButtonGroup>
+
+        {/* Shapes */}
+        <ButtonGroup>
+          <ToolButton
+            icon={Square}
+            label="Rectangle"
+            onClick={() => addShape('rectangle')}
+          />
+          <ToolButton
+            icon={CircleIcon}
+            label="Circle"
+            onClick={() => addShape('circle')}
+          />
+          <ToolButton
+            icon={Diamond}
+            label="Diamond"
+            onClick={addDiamond}
+          />
+          <ToolButton
+            icon={Type}
+            label="Text"
+            onClick={addText}
+          />
+          <ToolButton
+            icon={Link2}
+            label="Connector"
+            onClick={() => setMode('connector')}
+            active={mode === 'connector'}
+          />
+        </ButtonGroup>
+
+        {/* Actions */}
+        <ButtonGroup>
+          <ToolButton
+            icon={Trash2}
+            label="Delete"
+            onClick={deleteSelected}
+          />
+          <ToolButton
+            icon={Palette}
+            label="Update Color"
+            onClick={updateSelectedColor}
+          />
+          <ToolButton
+            icon={Eraser}
+            label="Clear Canvas"
+            onClick={clearCanvas}
+          />
+        </ButtonGroup>
+
+        {/* Color Picker */}
+        <div className="relative group">
+          <input
+            type="color"
+            value={color}
+            onChange={onColorChange}
+            className="w-10 h-10 rounded cursor-pointer"
+          />
+          <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 
+                        opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                        bg-gray-800 text-white text-xs px-2 py-1 rounded">
+            Pick Color
+          </div>
+        </div>
+
+        {/* Utilities */}
+        <ButtonGroup>
+          <ToolButton
+            icon={Upload}
+            label="Upload Image"
+            onClick={onImageUpload}
+          />
+          <ToolButton
+            icon={darkMode ? Sun : Moon}
+            label={darkMode ? "Light Mode" : "Dark Mode"}
+            onClick={toggleDarkMode}
+          />
+        </ButtonGroup>
+      </div>
+    );
+  };
 
   // ===== Main whiteboard interface =====
   return (
-    <div
-      className={`flex h-screen transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'
-        }`}
-    >
+    <div className={`flex h-screen transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'}`}>
       {/* Left: Whiteboard Area */}
       <div className="flex-grow flex flex-col">
-        {/* Top Toolbar */}
+        {/* Top Toolbar (Navbar remains unchanged) */}
         <Toolbar
           mode={mode}
           setMode={setMode}
@@ -899,7 +889,6 @@ const Toolbar = ({
                   {renderShape(shape)}
                 </React.Fragment>
               ))}
-              {/* The Konva Transformer */}
               <Transformer ref={transformerRef} />
             </Layer>
             {/* Cursor Overlay */}
@@ -915,9 +904,7 @@ const Toolbar = ({
                   <Text
                     x={user.x + 8}
                     y={user.y - 5}
-                    text={
-                      id === socket.id ? user.username + ' (You)' : user.username
-                    }
+                    text={id === socket.id ? user.username + ' (You)' : user.username}
                     fontSize={12}
                     fill="black"
                   />
@@ -928,55 +915,89 @@ const Toolbar = ({
         </div>
       </div>
 
-      {/* Right Sidebar */}
-      <div className="w-64 border-l p-4 overflow-y-auto shadow-inner flex flex-col">
-        {/* Active Users List */}
-        <h2 className="font-bold text-lg mb-2">Active Users</h2>
-        <ul className="mb-4">
-          {Object.entries(userCursors).map(([id, user]) => (
-            <li
-              key={id}
-              className="mb-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            >
-              <div className="flex flex-col">
-                <span className="font-medium">
-                  {id === socket.id ? user.username + ' (You)' : user.username}
-                </span>
-                <span className="text-xs">
-                  {`x: ${Math.round(user.x)}, y: ${Math.round(user.y)}`}
-                </span>
-                {user.isDrawing && (
-                  <span className="text-xs text-red-500">Drawing</span>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-
-        {/* Chatbox */}
-        <h2 className="font-bold text-lg mb-2">Chat</h2>
-        <div className="flex-grow mb-2 overflow-auto border border-gray-300 dark:border-gray-600 rounded p-2">
-          {messages.map((msg, idx) => (
-            <div key={idx} className="mb-2">
-              <span className="font-semibold">{msg.username}: </span>
-              <span>{msg.text}</span>
-            </div>
-          ))}
-        </div>
-        <div className="flex">
-          <input
-            className="flex-grow border rounded p-2 mr-2 dark:bg-gray-700"
-            type="text"
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            placeholder="Type a message..."
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') sendChatMessage();
+      {/* Right Sidebar (Chat) */}
+      {chatVisible ? (
+        <>
+          {/* Resizer Divider */}
+          <div
+            className="w-2 cursor-col-resize bg-gray-300"
+            onMouseDown={(e) => {
+              resizingChat.current = true;
+              initialChatX.current = e.clientX;
+              initialChatWidth.current = chatWidth;
+              window.addEventListener('mousemove', handleChatResizeMouseMove);
+              window.addEventListener('mouseup', handleChatResizeMouseUp);
             }}
           />
-          <Button onClick={sendChatMessage}>Send</Button>
-        </div>
+          <div
+            style={{ width: chatWidth, minWidth: MIN_CHAT_WIDTH }}
+            className="border-l p-4 overflow-y-auto shadow-inner flex flex-col relative"
+          >
+            {/* Close Chat Button */}
+  <button
+    onClick={() => setChatVisible(false)} // Close the chat
+    className="absolute top-2 right-2 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+    aria-label="Close chat"
+  >
+    <X className="w-4 h-4" /> {/* Close icon */}
+  </button>
+            {/* Active Users List */}
+            <h2 className="font-bold text-lg mb-2">Active Users</h2>
+            <ul className="mb-4">
+              {Object.entries(userCursors).map(([id, user]) => (
+                <li
+                  key={id}
+                  className="mb-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-medium">
+                      {id === socket.id ? user.username + ' (You)' : user.username}
+                    </span>
+                    <span className="text-xs">
+                      {`x: ${Math.round(user.x)}, y: ${Math.round(user.y)}`}
+                    </span>
+                    {user.isDrawing && (
+                      <span className="text-xs text-red-500">Drawing</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {/* Chatbox */}
+            <h2 className="font-bold text-lg mb-2">Chat</h2>
+            <div className="flex-grow mb-2 overflow-auto border border-gray-300 dark:border-gray-600 rounded p-2">
+              {messages.map((msg, idx) => (
+                <div key={idx} className="mb-2">
+                  <span className="font-semibold">{msg.username}: </span>
+                  <span>{msg.text}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex">
+              <input
+                className="flex-grow border rounded p-2 mr-2 dark:bg-gray-700"
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Type a message..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') sendChatMessage();
+                }}
+              />
+              <Button onClick={sendChatMessage}>Send</Button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {/* When chat is collapsed, show an Open Chat button at the end of the navbar */}
+      {!chatVisible && (
+        <div className="absolute top-0 right-0 mt-2 mr-4">
+        <Button onClick={() => setChatVisible(true)}>
+          <MessageCircle className="w-5 h-5" /> {/* Added chat icon */}
+        </Button>
       </div>
+      )}
     </div>
   );
 };
