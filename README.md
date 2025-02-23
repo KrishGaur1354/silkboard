@@ -1,52 +1,23 @@
-# **Diagram Generator App**  
+# SilkBoard
 
-This is a web-based application that's to create diagrams. It features a React frontend and an Express.js backend with Socket.io for real-time updates.  
+An open-source collaborative whiteboard built at FOSSHack 2025!
 
-## **Features**  
-- Generate diagrams from text descriptions.  
-- Real-time updates using WebSockets.  
+SilkBoard is a fully open-source collaborative whiteboard, built to offer a free and transparent alternative to proprietary tools like Miro, Jamboard, and FigJam. Unlike closed platforms that lock users into ecosystems, SilkBoard gives you complete control over your data, customization, and hosting. With real-time collaboration, an intuitive drawing interface, and extensibility through open contributions, teams, educators, and creators can work without limits. No subscriptions, no paywalls—just pure, unrestricted collaboration.  
 
-## **Prerequisites**  
-- Node.js (v16+)  
+[demo video](https://youtu.be/FkRF3sd_Evg)  
 
-## **Installation & Setup**  
+## Tech Stack
+- React
+- Websockets
+- Socket.io
+- Konva.js
+- Lucide React
+- Express.js
+- AWS EC2
 
-### **1. Clone the Repository**  
-```sh
-git clone https://github.com/KrishGaur1354/silkboard.git 
-```
+## Contributors
+- [MiranSiddique](https://github.com/MiranSiddique)
+- [w-nityammm](https://github.com/w-nityammm)
+- [KrishGaur1354](https://github.com/KrishGaur1354)
+- [s-m33r](https://github.com/s-m33r)
 
-### **2. Install Dependencies**  
-
-#### **Frontend**  
-```sh
-npm install
-```
-
-#### **Backend**  
-```sh
-cd backend
-npm install
-```
-
-
-### **4. Run the Application**  
-#### **Start the Backend**  
-#### **Start the Frontend**  
-```sh
-npm run dev
-```
-
-```sh
-cd backend
-node server.js
-```
-
-### **5. Access the App**  
-Open your browser and visit:  
-```
-http://localhost:5173
-```
-
-## **License**  
-The Unlicense
