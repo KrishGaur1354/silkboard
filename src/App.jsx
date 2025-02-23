@@ -40,7 +40,7 @@ import {
   ZoomOut
 } from 'lucide-react';
 
-const socket = io('localhost:3001');
+const socket = io('13.127.232.118:3001');
 
 // Helper function to generate a random passcode (6 alphanumeric characters)
 const generatePasscode = () =>
