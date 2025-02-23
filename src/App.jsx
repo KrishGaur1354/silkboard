@@ -13,6 +13,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import useImage from 'use-image';
+import SilkBoardLogo from './assets/SilkBoard.png';
 import io from 'socket.io-client';
 import { Button } from './components/ui/button';
 import EditableText from './components/EditableText';
@@ -39,7 +40,7 @@ import {
   ZoomOut
 } from 'lucide-react';
 
-const socket = io('http://localhost:3001');
+const socket = io('localhost:3001');
 
 // Helper function to generate a random passcode (6 alphanumeric characters)
 const generatePasscode = () =>
@@ -879,6 +880,9 @@ const App = () => {
         <div className={`shadow-lg rounded-lg p-8 w-full max-w-md ${
   darkMode ? 'bg-gray-800' : 'bg-gray-150'
 }`}> 
+<div className="mb-6">
+  <img src={SilkBoardLogo} alt="SilkBoard Logo" className="mx-auto h-16" />
+</div>
           <h1 className="text-2xl font-bold mb-6 text-center">
             Join or Create a Session
           </h1>
